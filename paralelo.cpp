@@ -1,0 +1,3 @@
+/*
+Paralelo con OpenMP
+*/
