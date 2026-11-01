@@ -1,0 +1,379 @@
+\section{OpenMP}\label{tema:omp}
+\soporte{F7 y F10}
+
+\concepto{5.1 Modelo fork-join y bucles paralelos}
+\que OpenMP es una API de directivas (\texttt{\#pragma omp}) para paralelismo en memoria compartida. Un hilo maestro abre una región paralela (\emph{fork}), un equipo de hilos ejecuta trabajo y se sincroniza al final (\emph{join}).
+
+\porque El enunciado lo exige (30\,\%), y el bucle sobre monomios es paralelo de forma natural.
+
+\como \texttt{\#pragma omp parallel for} reparte las iteraciones. Variables: \texttt{shared} por defecto, privadas las declaradas dentro del bucle. Usa \texttt{default(none)} mientras desarrollas: obliga a declarar todo y destapa errores. Número de hilos con \texttt{OMP\_NUM\_THREADS} o \texttt{omp\_set\_num\_threads}. Compila con \texttt{-fopenmp}.
+
+\alt Pthreads (control total, mucho más código), C11 \texttt{threads.h}, TBB o \texttt{std::thread} o \texttt{std::execution::par} en C++. MPI no aplica: el enunciado pide memoria compartida.
+
+\concepto{5.2 Condiciones de carrera al acumular el gradiente}
+\que Dos hilos que hacen \texttt{vGrad[v] += d} sobre la misma \texttt{v} a la vez pueden perder una de las sumas.
+
+\porque Es el problema central de paralelizar por monomios: es un patrón de \emph{scatter} (dispersión de escrituras).
+
+\como Cinco soluciones, de peor a mejor en general:
+\begin{enumerate}
+\item \texttt{\#pragma omp critical}: serializa la suma. Correcto, pero escala mal. Úsalo solo como versión de referencia.
+\item \texttt{\#pragma omp atomic}: suma atómica en hardware. Barata si hay pocos conflictos; mala con $N$ pequeño.
+\item \texttt{reduction(+ : vGrad[:n])} (OpenMP 4.5 o posterior): cada hilo tiene una copia privada de $n$ elementos y se suman al final. Coste extra $O(p\cdot N)$ en memoria y en la fusión: excelente con $N$ pequeño y malo con $N=10^5$ y muchos hilos.
+\item Privatización manual: igual que la anterior, pero controlas la fusión (en paralelo por variables) y el alineamiento (para evitar \emph{false sharing}).
+\item \textbf{Dos fases sin atómicos}: la fase 1 recorre los monomios y escribe cada contribución en su posición única \texttt{vContrib[t]} (no hay conflictos); la fase 2 recorre las variables y suma sus contribuciones con la transpuesta CSC (\emph{gather}). Es determinista y escala bien, a cambio de $12F$ bytes extra.
+\end{enumerate}
+
+Variante de dos fases (prototipo probado, error relativo $3.8\cdot10^{-16}$):
+\begin{lstlisting}[language=C]
+#pragma omp parallel
+{
+    double vPre[64];
+    #pragma omp for schedule(dynamic, 256)
+    for (int m = 0; m < p->nMon; m++) {
+        int ini = p->vOff[m], k = p->vOff[m + 1] - ini;
+        double acum = p->vCoef[m];
+        for (int t = 0; t < k; t++) {
+            double base = powi(vX[p->vIdVar[ini + t]], p->vExp[ini + t] - 1);
+            vPre[t] = acum * p->vExp[ini + t] * base;
+            acum *= base * vX[p->vIdVar[ini + t]];
+        }
+        double suf = 1.0;
+        for (int t = k - 1; t >= 0; t--) {
+            vContrib[ini + t] = vPre[t] * suf;
+            suf *= powi(vX[p->vIdVar[ini + t]], p->vExp[ini + t]);
+        }
+    }
+    #pragma omp for schedule(static)
+    for (int v = 0; v < p->nVars; v++) {
+        double s = 0.0;
+        for (int j = vOffVar[v]; j < vOffVar[v + 1]; j++) s += vContrib[vIdFact[j]];
+        vGrad[v] = s;
+    }
+}
+\end{lstlisting}
+La barrera implícita al final del primer \texttt{omp for} garantiza que \texttt{vContrib} está completo antes de la fase 2. La transpuesta (\texttt{transpone} en \fichero{omp.c}) se construye una vez con un recuento y una suma prefija, coste $O(F+N)$. Si evalúas muchos puntos con la misma función, se amortiza.
+
+\alt Paralelizar \emph{por variables} directamente (cada hilo calcula una $\partial f/\partial x_j$ recorriendo la CSC) evita atómicos sin \texttt{vContrib}, pero recalcula el producto del monomio una vez por cada variable: $O(\sum k_m^2)$. Es la variante natural para el estudio de anidado ``variables frente a monomios'' que pide el enunciado.
+
+\begin{trampa}
+La reducción sobre arrays con \texttt{vGrad[:n]} necesita que \texttt{n} sea una variable local, no \texttt{p->nVars}, y crea en la pila de cada hilo una copia de $n$ doubles: con $N=10^6$ son 8 MB por hilo y pueden desbordar la pila (ajústala con \texttt{OMP\_STACKSIZE}).
+\end{trampa}
+
+\concepto{5.3 Planificación (\texttt{schedule})}
+\que Cómo se reparten las iteraciones: \texttt{static} (bloques fijos, sin sobrecarga), \texttt{dynamic,c} (cada hilo pide trozos de $c$ iteraciones), \texttt{guided} (trozos decrecientes) o \texttt{auto}/\texttt{runtime}.
+
+\porque El coste de cada monomio es proporcional a $k_m$, que varía, y los núcleos P y E tienen velocidades distintas. Es un caso típico de desequilibrio.
+
+\como Usa \texttt{schedule(runtime)} en el código y cambia la política con \texttt{OMP\_SCHEDULE="dynamic,256"} desde el script de benchmark. Así comparas sin recompilar. Barre $c\in\{16,64,256,1024,4096\}$.
+
+\alt Equilibrar a priori: repartir por número de factores en lugar de por monomios (cada hilo recibe un rango de \texttt{vOff} con unos $F/p$ factores). Es estático y sin sobrecarga, y suele igualar a \texttt{dynamic}. Se busca con búsqueda binaria en \texttt{vOff}.
+
+\concepto{5.4 Paralelismo anidado}
+\que Regiones paralelas dentro de regiones paralelas: por ejemplo, un nivel externo sobre puntos de evaluación (o ecuaciones) y uno interno sobre monomios.
+
+\porque El enunciado pide un \emph{estudio de paralelismo anidado} entre variables, monomios y puntos.
+
+\como
+\begin{lstlisting}[language=C]
+omp_set_max_active_levels(2);
+#pragma omp parallel for num_threads(hExt)
+for (int i = 0; i < nPts; i++) {
+    #pragma omp parallel for num_threads(hInt) schedule(dynamic, 256)
+    for (int m = 0; m < p->nMon; m++) {
+    }
+}
+\end{lstlisting}
+Fragmento orientativo: el cuerpo interno es el de cualquier variante anterior. Diseño del experimento: con $T$ hilos totales, prueba todas las combinaciones $h_{\text{ext}}\times h_{\text{int}}=T$ (por ejemplo $1\times12$, $2\times6$, $3\times4$, $4\times3$, $6\times2$, $12\times1$) con $P\in\{1,16,256\}$ puntos. Resultado esperado: con muchos puntos gana el nivel externo (sin conflictos y mejor localidad); con un punto, solo sirve el interno.
+
+\alt
+\begin{itemize}
+\item \texttt{collapse(2)}: aplana los dos bucles en uno. Más simple y casi siempre igual o mejor que el anidado real, pero solo si los bucles son rectangulares (puntos $\times$ monomios lo es).
+\item Tareas (\texttt{omp taskloop}): reparto dinámico entre niveles. Útil si las ecuaciones de un sistema tienen tamaños muy distintos.
+\end{itemize}
+
+\begin{trampa}
+\texttt{omp\_set\_nested()} y \texttt{OMP\_NESTED} están obsoletos desde OpenMP 5.0. Usa \texttt{omp\_set\_max\_active\_levels} o \texttt{OMP\_MAX\_ACTIVE\_LEVELS}. Sin activarlo, la región interna se ejecuta con 1 hilo sin avisar.
+\end{trampa}
+
+\concepto{5.5 Afinidad de hilos}
+\que Fijar cada hilo a un núcleo para que no migre y conserve su caché.
+
+\porque Sin afinidad, las medidas tienen mucha varianza y el sistema operativo puede mover hilos a núcleos E o a hilos SMT del mismo núcleo.
+
+\como \texttt{OMP\_PROC\_BIND=close OMP\_PLACES=cores} (ya en \fichero{bench.sh}). Comprueba la colocación con \texttt{OMP\_DISPLAY\_AFFINITY=true}. En anidado: \texttt{OMP\_PROC\_BIND=spread,close}.
+
+\alt \texttt{taskset} o \texttt{numactl} desde fuera. \texttt{spread} reparte entre zócalos o NUMA y puede ser mejor en un servidor de dos procesadores.
+
+\concepto{5.6 Vectorización SIMD}
+\que Instrucciones que operan sobre 4 u 8 doubles a la vez (AVX2 o AVX-512).
+
+\porque Es la otra mitad del rendimiento en CPU. Aquí los accesos indirectos (\texttt{vX[vIdVar[t]]}) dificultan la vectorización automática.
+
+\como Prueba \texttt{\#pragma omp simd} en la fase 2 (suma) y comprueba con \texttt{-fopt-info-vec}. Los \emph{gathers} de AVX2 existen, pero rara vez ganan mucho.
+
+\alt Reorganizar a ELL por bloques de 8 monomios para vectorizar la fase 1. Es complejo; solo merece la pena si la memoria escrita lo justifica.
+
+\section{CUDA: fundamentos}\label{tema:cuda}
+\soporte{F8 y F10}
+
+\concepto{6.1 Arquitectura de una GPU NVIDIA}
+\que Una GPU tiene decenas de \emph{Streaming Multiprocessors} (SM). Cada SM ejecuta grupos de 32 hilos (\emph{warps}) en modo SIMT: los 32 hilos ejecutan la misma instrucción. Jerarquía de memoria: registros (por hilo), memoria compartida y L1 (por SM, decenas de KB), L2 (compartida, unos MB), memoria global (GB, alto ancho de banda y alta latencia) y memoria constante (64 KB, con caché y eficiente solo si todo el warp lee la misma dirección).
+
+\porque El rendimiento depende de tener muchos warps listos para ocultar la latencia de memoria (ocupación) y de que los accesos de un warp sean contiguos (coalescing).
+
+\como Consulta las características reales con \texttt{cudaGetDeviceProperties} o con el ejemplo \texttt{deviceQuery}. Capacidad de cómputo: 8.9 en la RTX 4050 \pv; la del servidor está por medir.
+
+\alt OpenCL, SYCL o HIP (AMD) son modelos equivalentes; OpenMP \texttt{target} y OpenACC son directivas para GPU. El enunciado exige CUDA.
+
+\concepto{6.2 Kernels, grid y bloques}
+\que Un kernel (\texttt{\_\_global\_\_}) es una función que ejecutan muchos hilos. Se lanza con \texttt{kernel<<<nBloques, tamBloque>>>(...)}. Cada hilo calcula su índice global con \texttt{blockIdx.x * blockDim.x + threadIdx.x}.
+
+\porque Es el mecanismo para asignar trabajo: un hilo por monomio (o por factor, variable o punto).
+
+\como $\text{nBloques}=\lceil M/\text{tamBloque}\rceil$, y el hilo comprueba \texttt{if (m >= nMon) return;}. Kernel base con un hilo por monomio y \texttt{atomicAdd} (\fichero{grad.cu}, compila para \texttt{sm\_89}):
+\begin{lstlisting}[language=CUDA]
+__global__ void kMonoAtom(int nMon, const double *__restrict__ vCoef, const int *__restrict__ vOff,
+                          const int *__restrict__ vIdVar, const int *__restrict__ vExp,
+                          const double *__restrict__ vX, double *vGrad) {
+    int m = blockIdx.x * blockDim.x + threadIdx.x;
+    if (m >= nMon) return;
+    int ini = vOff[m], k = vOff[m + 1] - ini;
+    double vPre[KMAX];
+    double acum = vCoef[m];
+    for (int t = 0; t < k; t++) {
+        double x = __ldg(&vX[vIdVar[ini + t]]);
+        int e = vExp[ini + t];
+        double base = powiDev(x, e - 1);
+        vPre[t] = acum * e * base;
+        acum *= base * x;
+    }
+    double suf = 1.0;
+    for (int t = k - 1; t >= 0; t--) {
+        int v = vIdVar[ini + t];
+        atomicAdd(&vGrad[v], vPre[t] * suf);
+        suf *= powiDev(__ldg(&vX[v]), vExp[ini + t]);
+    }
+}
+\end{lstlisting}
+
+\alt Un hilo por factor (más paralelismo, pero necesita el producto del monomio: dos kernels o reducción segmentada), un warp por monomio (bueno si $k$ es grande, desperdicia hilos si $k\le16$) o un hilo por punto (ideal con muchos puntos).
+
+\concepto{6.3 Gestión de memoria y transferencias}
+\que La GPU tiene su propia memoria. Hay que reservar (\texttt{cudaMalloc}), copiar (\texttt{cudaMemcpy}) en ambos sentidos y liberar (\texttt{cudaFree}).
+
+\porque El enunciado exige el desglose transferencia/cómputo/total. En este problema la transferencia de la estructura ($8M+4M+8F$ bytes) domina a una sola evaluación del gradiente, que solo devuelve $8N$ bytes.
+
+\como Copia la estructura CSR una vez. Si evalúas varios puntos, copia solo \texttt{vX} en cada uno y deja la estructura en la GPU: así amortizas la transferencia y lo puedes argumentar en la conclusión. Reserva memoria anclada (\texttt{cudaMallocHost}) para los buffers del host y las copias irán más rápido \pv; mide la diferencia.
+
+\alt Memoria unificada (\texttt{cudaMallocManaged}): más cómoda, pero las migraciones por fallo de página enturbian el desglose de tiempos que pide el enunciado. Evítala para medir.
+
+\concepto{6.4 Medida con eventos CUDA}
+\que \texttt{cudaEvent\_t} marca instantes en la cola de la GPU; \texttt{cudaEventElapsedTime} da los milisegundos entre dos marcas con resolución de unos 0.5 µs \pv.
+
+\porque Es la forma correcta de medir operaciones asíncronas de GPU.
+
+\como Cuatro eventos: antes de H2D, después de H2D, después del kernel y después de D2H (código completo en \fichero{grad.cu}):
+\begin{lstlisting}[language=CUDA]
+CHECK(cudaEventRecord(ev1));
+kMonoAtom<<<nBloques, tamBloque>>>(nMon, dCoef, dOff, dIdVar, dExp, dX, dGrad);
+CHECK(cudaGetLastError());
+CHECK(cudaEventRecord(ev2));
+CHECK(cudaMemcpy(vGrad.data(), dGrad, sizeof(double) * nVars, cudaMemcpyDeviceToHost));
+CHECK(cudaEventRecord(ev3));
+CHECK(cudaEventSynchronize(ev3));
+CHECK(cudaEventElapsedTime(&tKer, ev1, ev2));
+\end{lstlisting}
+
+\begin{trampa}
+La primera llamada a CUDA crea el contexto y puede tardar cientos de milisegundos. Haz una llamada de calentamiento (por ejemplo \texttt{cudaFree(0)}) y una ejecución del kernel que no midas. Comprueba \emph{siempre} los errores: un lanzamiento fallido no avisa hasta que preguntas con \texttt{cudaGetLastError}.
+\end{trampa}
+
+\alt Nsight Systems da la misma información de forma gráfica. Úsalo para validar los eventos, no para sustituirlos, porque el enunciado pide números.
+
+\concepto{6.5 Operaciones atómicas en GPU}
+\que \texttt{atomicAdd(double*, double)} suma de forma indivisible en memoria global o compartida. Existe en hardware para \texttt{double} desde la capacidad 6.0.
+
+\porque Es la forma más directa de resolver la carrera del concepto 5.2 en GPU.
+
+\como Como en \texttt{kMonoAtom}. Su coste crece con los conflictos: si $N=10$ y $M=10^6$, millones de hilos atacan 10 direcciones. Mide con $N\in\{10,10^3,10^5\}$ y $F$ fijo para mostrarlo (experimento E8).
+
+\alt Dos fases sin atómicos (tema \ref{tema:cudaOpt}) y reducción en memoria compartida por bloque antes del atómico global (solo ayuda si los monomios de un bloque comparten variables).
+
+\begin{trampa}
+La emulación de \texttt{atomicAdd} para \texttt{double} con \texttt{atomicCAS} que aparece en apuntes antiguos solo es necesaria para capacidades menores que 6.0. En GPUs actuales es obsoleta y más lenta.
+\end{trampa}
+
+\section{CUDA: optimización}\label{tema:cudaOpt}
+\soporte{F9 (parte opcional del 2.1.2)}
+
+\concepto{7.1 Ocupación y recursos por hilo}
+\que La ocupación es la proporción de warps activos en un SM respecto al máximo. La limitan los registros por hilo, la memoria compartida por bloque y el tamaño de bloque.
+
+\porque El enunciado propone examinar la salida de \texttt{-Xptxas=-v}. Salida real de los kernels de la guía con nvcc 12.0 para \texttt{sm\_89}:
+
+\begin{center}\small
+\begin{tabular}{@{}lrrl@{}}
+\toprule
+Kernel & Registros & Pila (bytes) & Observación \\
+\midrule
+\texttt{kMonoAtom} & 20 & 256 & \texttt{vPre[32]} va a memoria local \\
+\texttt{kContrib} & 23 & 0 & escribe en global, sin array local \\
+\texttt{kSumaVar} & 40 & 0 & reducción con \emph{shuffles} \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Los 256 bytes de pila de \texttt{kMonoAtom} son \texttt{vPre[KMAX]} con $\texttt{KMAX}=32$ doubles: un array indexado con una variable no cabe en registros y se aloja en memoria local (que físicamente es global, con caché L1). Es tráfico de memoria oculto, y la versión de dos fases lo elimina.
+
+\como \texttt{nvcc -O3 -arch=sm\_XY -Xptxas=-v grad.cu}. Para calcular la ocupación teórica: \texttt{cudaOccupancyMaxActiveBlocksPerMultiprocessor} o \texttt{cudaOccupancyMaxPotentialBlockSize} en el propio programa, o la calculadora de ocupación de Nsight Compute. La ocupación \emph{lograda} se mide con \texttt{ncu}.
+
+\begin{trampa}
+La hoja \fichero{CUDA\_Occupancy\_calculator.xls} que cita el enunciado está descontinuada en las versiones recientes del toolkit \pv. Usa la API de ocupación o Nsight Compute y explícalo en la memoria.
+\end{trampa}
+
+\alt \texttt{\_\_launch\_bounds\_\_(maxHilos, minBloques)} o \texttt{-maxrregcount} fuerzan menos registros, pero pueden provocar \emph{spills}. Más ocupación no siempre es más rendimiento si el kernel está limitado por ancho de banda.
+
+\concepto{7.2 Tamaño de bloque}
+\que El número de hilos por bloque: un múltiplo de 32 hasta 1024.
+
+\porque El enunciado pide variarlo explícitamente.
+
+\como Barre $\{32,64,128,256,512,1024\}$ pasándolo como argumento (\fichero{grad.cu} lo acepta como tercer parámetro). Esperado: 32 rinde mal (pocos warps por SM por el límite de bloques por SM), y la mejora se aplana entre 128 y 512. Interpreta los resultados con la ocupación teórica de cada tamaño.
+
+\alt Elegirlo automáticamente con \texttt{cudaOccupancyMaxPotentialBlockSize}. Puedes usarlo como valor por defecto y comparar con el barrido.
+
+\concepto{7.3 Coalescing y caché de solo lectura}
+\que Un acceso es coalescente cuando los 32 hilos de un warp leen direcciones contiguas, y se sirve en pocas transacciones de 32 bytes. \texttt{\_\_ldg} y \texttt{const \_\_restrict\_\_} dirigen las lecturas por la caché de solo lectura o de texturas.
+
+\porque Con un hilo por monomio, el hilo $m$ lee \texttt{vIdVar[vOff[m]+t]}: los hilos de un warp leen posiciones separadas $k_m$ elementos, así que el acceso \emph{no} es coalescente. \texttt{vX[vIdVar[...]]} es aleatorio por naturaleza.
+
+\como Opciones, de menor a mayor esfuerzo:
+\begin{enumerate}
+\item \texttt{\_\_ldg} en \texttt{vX} (ya aplicado).
+\item Formato ELL transpuesto: el factor $t$ del monomio $m$ en la posición \texttt{t * nMon + m}. Los hilos consecutivos leen posiciones consecutivas y el acceso es perfectamente coalescente, a cambio del relleno.
+\item Ordenar los monomios por $k_m$ antes de copiarlos: los warps tienen trabajo homogéneo (menos divergencia) y el relleno ELL se reduce por tramos (\emph{sliced ELL}, al estilo de SpMV en GPU; Bell y Garland, 2009).
+\end{enumerate}
+
+\alt Memoria de texturas con objetos de textura: obsoleta como optimización explícita desde que existe \texttt{\_\_ldg}.
+
+\begin{trampa}
+Las \emph{texture references} se eliminaron en CUDA 12. Si un tutorial las usa, está desactualizado; los objetos de textura (\texttt{cudaTextureObject\_t}) siguen existiendo.
+\end{trampa}
+
+\concepto{7.4 Memoria compartida (tiling)}
+\que Memoria rápida por bloque (\texttt{\_\_shared\_\_}), gestionada por el programador; hasta 48 KB por bloque por defecto, más configurando el kernel.
+
+\porque El enunciado sugiere \emph{tiling}. Aquí lo aprovechable es cargar \texttt{vX} entero en memoria compartida si cabe: $8N\le48$ KB, es decir, $N\le6144$. Cada lectura aleatoria de \texttt{x} pasa a ser de baja latencia.
+
+\como
+\begin{lstlisting}[language=CUDA]
+extern __shared__ double sX[];
+for (int i = threadIdx.x; i < nVars; i += blockDim.x) sX[i] = vX[i];
+__syncthreads();
+\end{lstlisting}
+Fragmento orientativo; el lanzamiento debe pasar \texttt{nVars * sizeof(double)} como tercer parámetro de \texttt{<<<...>>>}. Para $N$ grande: \emph{tiling} por rangos de variables (procesar solo los factores cuya variable cae en el tramo cargado) exige reordenar los factores por variable y complica mucho el código. Valóralo solo si \texttt{ncu} muestra que \texttt{vX} es el cuello de botella.
+
+\alt Memoria constante para \texttt{vX}: \textbf{no conviene}, porque los hilos de un warp leen variables distintas y la memoria constante serializa los accesos a direcciones diferentes. Sí conviene para escalares comunes. La L1 y la caché de solo lectura ya cachean \texttt{vX} sin código extra: mide si la compartida mejora de verdad.
+
+\concepto{7.5 Dos fases y reducción con shuffles}
+\que La versión GPU del concepto 5.2: \texttt{kContrib} (un hilo por monomio escribe \texttt{vContrib}) y \texttt{kSumaVar} (un warp por variable suma su lista CSC con \texttt{\_\_shfl\_down\_sync}).
+
+\porque Elimina atómicos y memoria local, y es determinista. La suma por warp tiene accesos parcialmente coalescentes, porque los 32 hilos leen \texttt{vIdFact} consecutivo.
+
+\como
+\begin{lstlisting}[language=CUDA]
+__global__ void kSumaVar(int nVars, const int *__restrict__ vOffVar, const int *__restrict__ vIdFact,
+                         const double *__restrict__ vContrib, double *vGrad) {
+    int warp = (blockIdx.x * blockDim.x + threadIdx.x) / 32;
+    int lane = threadIdx.x % 32;
+    if (warp >= nVars) return;
+    double s = 0.0;
+    for (int j = vOffVar[warp] + lane; j < vOffVar[warp + 1]; j += 32) s += vContrib[vIdFact[j]];
+    for (int d = 16; d > 0; d >>= 1) s += __shfl_down_sync(0xffffffff, s, d);
+    if (lane == 0) vGrad[warp] = s;
+}
+\end{lstlisting}
+Si cada variable aparece de media en $F/N$ factores, con $F/N<32$ muchos hilos del warp quedan ociosos: usa un hilo por variable en ese caso. La CSC se puede construir en la GPU con \texttt{thrust::sort\_by\_key} o en el host una sola vez.
+
+\alt Reordenar \texttt{vContrib} directamente en orden CSC (escribir en \texttt{vContrib[posCsc[t]]}) hace la fase 2 totalmente coalescente, a cambio de escrituras dispersas en la fase 1. Hay que medirlo.
+
+\begin{trampa}
+\texttt{\_\_shfl\_down} sin el sufijo \texttt{\_sync} está obsoleto desde CUDA 9 y no es correcto en arquitecturas Volta o posteriores. Tampoco uses \texttt{cudaThreadSynchronize} (obsoleto): usa \texttt{cudaDeviceSynchronize}.
+\end{trampa}
+
+\concepto{7.6 Divergencia de warps}
+\que Si los hilos de un warp siguen caminos distintos (bucles de distinta longitud), el warp ejecuta todos los caminos y los hilos que no toca esperan.
+
+\porque El bucle sobre $k_m$ diverge: el warp tarda lo que su monomio más largo. Con $k$ uniforme en $[1,16]$, la eficiencia media del warp es de un 54\,\% ($\bar k/E[\max_{32} k]\approx8.5/15.86$).
+
+\como Ordenar monomios por $k_m$ (concepto 7.3) o agrupar en tramos de igual longitud. Mide la métrica \emph{branch efficiency} o \emph{warp execution efficiency} con \texttt{ncu}.
+
+\alt Un hilo por factor más una reducción segmentada (todos los hilos con el mismo trabajo): elimina la divergencia, pero añade sincronización.
+
+\concepto{7.7 Precisión: \texttt{double} frente a \texttt{float}}
+\que Hacer el cálculo en 32 bits.
+
+\porque En GPUs GeForce el FP64 es mucho más lento que el FP32 \pv, y \texttt{float} reduce a la mitad los bytes de \texttt{vX} y \texttt{vContrib}.
+
+\como Implementa el kernel con un \texttt{typedef} de tipo real y compara tiempo y error frente al oráculo (experimento E10). Con $u_{\text{float}}\approx6\cdot10^{-8}$ el error relativo esperado es del orden de $10^{-6}$: hay que relajar la tolerancia y justificarlo.
+
+\alt Mixta: productos en \texttt{float} y acumulación en \texttt{double}. La validación de corrección del enunciado debe hacerse con \texttt{double}.
+
+\concepto{7.8 Streams y solapamiento}
+\que Colas independientes que permiten solapar copias y kernels (requiere memoria anclada).
+
+\porque Si se evalúan muchos puntos o ecuaciones, la copia del lote $i+1$ se solapa con el cálculo del lote $i$.
+
+\como \texttt{cudaStreamCreate}, \texttt{cudaMemcpyAsync(..., stream)} y \texttt{kernel<<<b, t, 0, stream>>>}. Compruébalo en la línea temporal de Nsight Systems.
+
+\alt Para una sola evaluación no aporta nada: es una optimización para el modo por lotes (E11).
+
+\section{Sistemas de ecuaciones y Jacobiano}\label{tema:jac}
+\soporte{F10 (apartado 2.1.3, 20\,\%)}
+
+\concepto{8.1 Matriz Jacobiana}
+\que Para un sistema $F_i(\mathbf{x})=\text{lhs}_i(\mathbf{x})-\text{rhs}_i=0$, $i=1..K$, el Jacobiano es la matriz $K\times N$ con $J_{ij}=\partial F_i/\partial x_j$. Cada fila es el gradiente de una ecuación, y la constante $\text{rhs}_i$ no influye.
+
+\porque Es la extensión pedida. Es la pieza que usaría el método de Newton para resolver el sistema: $J\,\Delta\mathbf{x}=-F(\mathbf{x})$ (no pedido, pero buen comentario para la memoria).
+
+\como Sistema del enunciado, ya corregido (\texttt{3x\^{}2 + yz + z + 5 = 2}, \texttt{2x + yz\^{}3 + 2x + 2 = 0}, \texttt{3xz + 8yz + z\^{}2 + 1 = 4}). En $(1,2,3)$, salida de \fichero{jac.c}:
+\[
+F=(15,\,60,\,63),\qquad
+J=\begin{pmatrix} 6 & 3 & 3\\ 4 & 27 & 54\\ 9 & 24 & 25\end{pmatrix}.
+\]
+Por ejemplo, $J_{23}=\partial(yz^3)/\partial z=3yz^2=54$ y $J_{33}=3x+8y+2z=25$. Estos valores son el caso de prueba obligatorio de F10.
+
+\alt Ninguna para la definición.
+
+\concepto{8.2 Estructura de datos para sistemas}
+\que Concatenar las $K$ ecuaciones en un solo CSR global y añadir \texttt{vOffEc[K+1]} (primer monomio de cada ecuación) y \texttt{vRhs[K]}.
+
+\porque Un único CSR permite reutilizar los mismos kernels y bucles: un monomio solo necesita saber a qué fila del Jacobiano contribuye. El enunciado pide expresamente \emph{adaptar las estructuras de datos}.
+
+\como El índice de destino pasa de \texttt{v} a \texttt{ec * nVars + v}. En GPU, la ecuación de cada monomio se obtiene con una búsqueda binaria en \texttt{vOffEc} o, más barato, guardando \texttt{vIdEc[M]} (4 bytes por monomio).
+
+\alt Un array de $K$ estructuras \texttt{Poli} independientes (lo que hace el prototipo \fichero{jac.c}): más simple, pero obliga a $K$ lanzamientos de kernel o a regiones OpenMP por ecuación, con mal equilibrio si las ecuaciones tienen tamaños distintos.
+
+\concepto{8.3 Paralelización del Jacobiano}
+\que Tres niveles de paralelismo: ecuaciones, monomios dentro de la ecuación y variables.
+
+\porque Determina la escalabilidad del apartado y enlaza con el estudio de anidado.
+
+\como
+\begin{itemize}
+\item OpenMP: un solo \texttt{parallel for} sobre todos los monomios del CSR global (equilibrado de forma natural), con la variante de dos fases y una CSC por pares \texttt{(ec, v)}. O bien anidado: externo por ecuaciones e interno por monomios, que compara con lo anterior en el estudio.
+\item CUDA: el mismo \texttt{kContrib} sobre el CSR global; en la fase 2, un hilo o warp por entrada no nula de $J$.
+\end{itemize}
+
+\alt Paralelizar solo por ecuaciones: trivial y sin conflictos, pero con $K$ pequeño (3 en el enunciado) no hay paralelismo suficiente.
+
+\concepto{8.4 Almacenamiento del Jacobiano}
+\que Denso ($8KN$ bytes) o disperso (solo las entradas no nulas, en CSR por filas).
+
+\porque Con $K=N=10^3$ el denso ocupa 8 MB (bien); con $K=N=10^4$, 800 MB (límite en la GPU); con $K=N=10^5$, 80 GB (imposible). El número de no nulos está acotado por $F$.
+
+\como Usa denso hasta unos 100 MB y disperso por encima. Para el disperso, la CSC por pares \texttt{(ec, v)} de la fase 2 \emph{es} ya la estructura del Jacobiano: las posiciones no nulas son las claves únicas.
+
+\alt Devolver solo $J\cdot\mathbf{v}$ (producto Jacobiano por vector), como hacen las bibliotecas de AD: evita guardar $J$, pero no es lo que pide el enunciado.
+\clearpage

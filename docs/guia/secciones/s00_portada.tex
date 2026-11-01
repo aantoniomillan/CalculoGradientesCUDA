@@ -1,0 +1,41 @@
+\begin{titlepage}
+\thispagestyle{plain}
+\vspace*{0.2cm}
+{\color{azul}\rule{\linewidth}{1.2pt}}\par
+\vspace{0.4cm}
+{\Huge\bfseries\color{azul} CalculoGradientesCUDA\par}
+\vspace{0.3cm}
+{\Large Guía de desarrollo y apuntes de estudio\par}
+\vspace{0.2cm}
+{\large Práctica final de Programación Paralela (OpenMP y CUDA)\par}
+\vspace{0.4cm}
+{\color{azul}\rule{\linewidth}{1.2pt}}\par
+\vspace{0.4cm}
+
+{\small\begin{tabularx}{\linewidth}{@{}>{\bfseries}l X@{}}
+Objetivo & Calcular de forma exacta y paralela el gradiente de funciones polinómicas de $N$ variables y $M$ monomios, y el Jacobiano de sistemas de $K$ ecuaciones, comparando versiones secuencial, OpenMP y CUDA y documentando el uso de IA generativa. \\
+Autor del proyecto & Antonio Millán Rodríguez (3.º de Ingeniería Informática) \\
+Asignatura & Programación Paralela. Profesor: Baldomero Imbernón Tudela \\
+Fecha & 1 de noviembre de 2026 \\
+Repositorio & \url{https://github.com/aantoniomillan/CalculoGradientesCUDA} (rama \texttt{master}, commit \texttt{2a655c4}) \\
+Hardware de desarrollo & Portátil Lenovo LOQ 15IRH8: Intel Core i5-13420H, NVIDIA GeForce RTX 4050 Laptop, 16 GB de RAM, CachyOS. Detalles de núcleos y GPU en la sección \ref{sec:hardware} \pv. \\
+Hardware de entrega & Servidor de prácticas de la asignatura. Características desconocidas: \supuesto{se tratan como incógnita hasta medirlas con los comandos de la sección \ref{sec:hardware}.} \\
+Código de la guía & Todos los fragmentos están en \fichero{docs/guia/codigo/} y se han compilado y ejecutado (salvo CUDA, solo compilado) con gcc 13.3, nvcc 12.0, rustc 1.97 y Python 3.13. \\
+\end{tabularx}}
+
+\vspace{0.4cm}
+\begin{nota}[Cómo leer este documento]\small
+\begin{enumerate}[leftmargin=*]
+\item Lee la sección \ref{sec:fases} (fases) y la \ref{sec:diagnostico} (diagnóstico): te dicen qué hay que construir, en qué orden y qué existe ya.
+\item Usa el índice de temas (sección \ref{sec:indiceTemas}) para saber qué estudiar antes de cada fase. Cada tema va de lo básico a lo avanzado; puedes parar cuando tengas lo necesario para la fase en curso y volver después.
+\item Cada concepto sigue el esquema \emph{Qué es}, \emph{Por qué lo usamos}, \emph{Cómo se usa} y \emph{Alternativas}. Las cajas naranjas marcan trampas habituales.
+\item Antes de cada decisión importante, consulta la tabla de decisiones (sección \ref{sec:decisiones}); indica qué medir cuando la respuesta depende de datos.
+\item Las marcas \pv{} y \supuesto{} señalan información no comprobada. No la copies a la memoria sin contrastarla.
+\item Las cifras de tiempo de esta guía son orientativas: proceden de una máquina en la nube de 2 vCPU sin GPU, no del servidor de prácticas.
+\end{enumerate}
+\end{nota}
+\end{titlepage}
+\setcounter{page}{2}
+
+\tableofcontents
+\clearpage

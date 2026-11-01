@@ -1,0 +1,220 @@
+\section{Tabla de decisiones}\label{sec:decisiones}
+
+{\footnotesize
+\begin{xltabular}{\linewidth}{@{}>{\bfseries}p{0.6cm} >{\raggedright\arraybackslash}p{2.4cm} >{\raggedright\arraybackslash}p{3.0cm} >{\raggedright\arraybackslash}p{2.4cm} >{\raggedright\arraybackslash}X >{\raggedright\arraybackslash}p{0.8cm}@{}}
+\toprule
+Id & Decisión & Opciones & Recomendación & Motivo y qué medir para decidir & Fase \\
+\midrule
+\endfirsthead
+\toprule
+Id & Decisión & Opciones & Recomendación & Motivo y qué medir para decidir & Fase \\
+\midrule
+\endhead
+\bottomrule
+\endfoot
+D1 & Lenguaje de las versiones paralelas & C, C++ & C (tomada) & Integración directa con OpenMP y CUDA; CUDA se compila como C++ con estilo C & F0 \\
+D2 & Nombres de ficheros & \fichero{.cpp} actuales, \fichero{.c}/\fichero{.cu} & \fichero{.c} y \fichero{.cu} en \fichero{src/} & \texttt{nvcc} necesita \fichero{.cu}; coherencia con D1 & F0 \\
+D3 & Sistema de compilación & Make, CMake & Make & Pocos ficheros; el profesor solo ejecuta \texttt{make} & F0 \\
+D4 & Formato de validación & Texto del enunciado, CSV, binario & Texto con la regla letra+dígitos & Notación del enunciado y legible; base del oráculo & F1 \\
+D5 & Formato de benchmark & Texto, CSV, binario & Binario si el parseo pesa & Medir el tiempo de parseo frente al de cálculo en el caso M: si el parseo supera el 10\,\% del total, binario & F1 \\
+D6 & Rangos del generador & Los actuales ($e\le100$, $k\le100$), seguros & $c\le9$, $e\le5$, $k\le16$, $x\in[0.5,1.5]$ & Evita \texttt{inf}; comprobar que $\max|g_j|<10^{300}$ & F1 \\
+D7 & Representación & Densa, COO, CSR, ELL & CSR (cambia la decisión densa del 18-oct) & Memoria $O(F)$; medir la densidad $F/(MN)$ de tus casos & F3 \\
+D8 & Algoritmo por monomio & Ingenuo, división, prefijo-sufijo & Prefijo-sufijo & $O(k)$ sin divisiones; medida: el ingenuo es 3 veces más lento & F4 \\
+D9 & Potencias & \texttt{pow}, bucle, cuadrados, tabla & Cuadrados; tabla en F9 si se mide mejora & Medir tiempo por factor con cada una en el caso M & F4, F9 \\
+D10 & Precisión & \texttt{double}, \texttt{float}, mixta & \texttt{double}; \texttt{float} como experimento & Corrección exigida; medir tiempo y error (E10) & F4, F9 \\
+D11 & Tolerancia & Absoluta, relativa, mixta & $\le10^{-12}\max(1,|g|)$ & Coeficientes positivos y $x\in[0.5,1.5]$; relajar con justificación si hay cancelación & F6 \\
+D12 & Acumulación en OpenMP & \texttt{critical}, \texttt{atomic}, \texttt{reduction}, privatizada, dos fases & Dos fases como principal; las demás como comparación & Determinista y sin conflictos; medir las cinco frente a $N$ (E3, E8) & F7 \\
+D13 & \texttt{schedule} & static, dynamic, guided, por factores & Decidir con datos; partir de dynamic,256 & Barrido E5; mirar la varianza entre hilos P y E & F7 \\
+D14 & Anidado & Anidado real, \texttt{collapse}, \texttt{taskloop} & Estudiar las tres & El enunciado pide el estudio; medir E6 & F7 \\
+D15 & Mapeo CUDA & Hilo por monomio, por factor, warp por monomio, dos fases & Hilo por monomio con atómicos (base) y dos fases (optimizada) & Corrección primero; comparar en E7 y E8 & F8, F9 \\
+D16 & Tamaño de bloque & 32 a 1024 & Elegir por barrido & Medir E7 y contrastar con la ocupación teórica & F8 \\
+D17 & Memoria para \texttt{vX} & Global con \texttt{\_\_ldg}, compartida, constante & \texttt{\_\_ldg}; compartida si $N\le6144$ y mejora & Constante descartada por los accesos divergentes; medir con \texttt{ncu} & F9 \\
+D18 & Layout en GPU & CSR, ELL transpuesto, sliced ELL ordenado & CSR; probar sliced ELL & Medir el ancho de banda efectivo y la eficiencia de warp & F9 \\
+D19 & Estructura del sistema & $K$ \texttt{Poli} separados, CSR global & CSR global con \texttt{vIdEc} & Un solo bucle o kernel equilibrado & F10 \\
+D20 & Almacenamiento de $J$ & Denso, disperso & Denso hasta unos 100 MB & $8KN$ bytes; disperso por encima & F10 \\
+D21 & Contenedor & Docker, Apptainer, Podman & Según el servidor & Preguntar si hay Docker con NVIDIA Container Toolkit o Apptainer y si hay \texttt{root} & F12 \\
+D22 & Paralelismo en Rust & Ninguno, rayon & Ninguno & Fuera del enunciado; solo secuencial & F5 \\
+D23 & Qué tiempos se reportan & Solo cálculo, total & Ambos, separados & El enunciado pide el desglose; Amdahl exige conocer la parte secuencial & F11 \\
+\end{xltabular}
+}
+
+\section{Experimentos, riesgos y calendario}\label{sec:experimentos}
+
+\subsection{Experimentos planificados}
+
+Casos de tamaño (definidos en el concepto 2.3): S ($N=10^3$, $M=10^4$), M ($N=10^4$, $M=10^6$) y L ($N=10^5$, $M=10^7$), todos con $k\in[1,16]$, $e\in[1,5]$, $c\in[1,9]$, $x\in[0.5,1.5]$, semilla de función 0 y semilla de punto 1. Hilos: $\{1,2,4,6,8,12\}$ en el portátil y potencias de 2 hasta el número de núcleos en el servidor. $R=10$ repeticiones y mediana.
+
+{\footnotesize
+\begin{xltabular}{\linewidth}{@{}>{\bfseries}p{0.6cm} >{\raggedright\arraybackslash}p{3.0cm} >{\raggedright\arraybackslash}p{4.6cm} >{\raggedright\arraybackslash}X@{}}
+\toprule
+Id & Objetivo & Configuración & Resultado esperado \\
+\midrule
+\endfirsthead
+\toprule
+Id & Objetivo & Configuración & Resultado esperado \\
+\midrule
+\endhead
+\bottomrule
+\endfoot
+E1 & Corrección & Ejemplo del enunciado; sistema del enunciado; oráculo ($N=50$, $M=200$, semilla 7; $N=300$, $M=2000$, semilla 11); casos límite del concepto 9.1 & $(8,15,8)$; filas $(6,3,3)$, $(4,27,54)$, $(9,24,25)$; error 0 frente al oráculo (ya obtenido con el prototipo) \\
+E2 & Coste secuencial & C, C++ y Rust en S, M y L & Tiempo lineal en $F$ (unos 16 ns por factor en la nube); diferencias entre lenguajes por debajo del 20\,\% \pv \\
+E3 & Escalado fuerte OpenMP & Caso M, cinco variantes de D12, todos los hilos & Dos fases con mejor eficiencia; \emph{reduction} empeora al crecer los hilos por la fusión $O(pN)$; techo por ancho de banda \\
+E4 & Escalado débil OpenMP & $M=10^5\cdot p$, $N=10^4$ & Tiempo casi constante hasta saturar el ancho de banda \\
+E5 & Planificación & Caso M, 8 hilos, static, dynamic y guided con trozos $\{16,64,256,1024,4096\}$ & dynamic o guided por encima de static en el portátil (núcleos P y E); trozo pequeño penalizado \\
+E6 & Anidado & $P\in\{1,16,256\}$ puntos, caso S, todas las combinaciones $h_{\text{ext}}\times h_{\text{int}}$ & Con $P=256$ gana el externo o \texttt{collapse}; con $P=1$ solo sirve el interno \\
+E7 & CUDA: bloque y desglose & Casos S, M y L; bloques de 32 a 1024; \texttt{kMonoAtom} y dos fases & H2D mayor que el kernel en una evaluación; 32 hilos por bloque peor; meseta entre 128 y 512 \\
+E8 & Contención de atómicos & $F=8.5\cdot10^6$ fijo y $N\in\{10,10^3,10^5\}$; CPU y GPU & Atómicos muy lentos con $N=10$; dos fases insensible a $N$ \\
+E9 & Jacobiano & $K\in\{10,100,1000\}$, $N=10^3$, $M=10^3$ por ecuación & CSR global equilibrado; denso hasta $K=1000$ (8 MB) \\
+E10 & \texttt{float} frente a \texttt{double} & Caso M en GPU & \texttt{float} más rápido en GeForce; error relativo del orden de $10^{-6}$ \\
+E11 & Lotes de puntos en GPU & Caso M con 1, 10 y 100 puntos y estructura residente & El coste de H2D se amortiza; speedup frente al secuencial creciente con los puntos \\
+\end{xltabular}
+}
+
+\subsection{Riesgos}
+
+{\footnotesize
+\begin{xltabular}{\linewidth}{@{}>{\raggedright\arraybackslash}p{4.2cm} >{\raggedright\arraybackslash}p{1.6cm} >{\raggedright\arraybackslash}X@{}}
+\toprule
+Riesgo & Impacto & Mitigación \\
+\midrule
+\endhead
+\bottomrule
+\endfoot
+CUDA no coincide con el secuencial (eliminatorio) & Muy alto & Validar contra el oráculo en cada commit; casos límite; comprobar errores CUDA; comparar con tolerancia, no con \texttt{==} \\
+Servidor sin GPU disponible, ocupado o con otro modelo & Alto & Medir pronto (PC3); tener resultados del portátil como respaldo y declararlo; \texttt{ARCH} parametrizado \\
+Driver del servidor incompatible con la versión de CUDA o del contenedor & Medio & \texttt{nvidia-smi} y \texttt{nvcc --version} la primera semana; elegir la imagen según el driver \\
+Docker no permitido en el servidor & Medio & Apptainer con \texttt{--nv}; si nada funciona, documentarlo y entregar el Dockerfile probado en el portátil \\
+Desbordamientos o \texttt{inf} en casos grandes & Medio & Rangos de D6; comprobar \texttt{isfinite} en los tests \\
+El parseo domina el tiempo y oculta el speedup & Medio & Medir por separado; formato binario (D5) \\
+Medidas ruidosas por compartir el servidor & Medio & Mediana de 10, afinidad, horas valle, anotar la carga \\
+Retraso en la parte de IA y memoria (30\,\%) & Alto & Registrar prompts desde ya; escribir cada sección al cerrar su fase \\
+Fecha de entrega desconocida & Alto & Confirmarla esta semana en el aula virtual; ajustar el calendario \\
+Ambigüedades del enunciado (pesos, formato, contenedores) & Medio & Preguntar al profesor por escrito y citar la respuesta en la memoria \\
+Pérdida de trabajo & Medio & Push diario; etiquetas por punto de control \\
+\end{xltabular}
+}
+
+\subsection{Calendario con puntos de control}
+
+\supuesto{entrega opcional de OpenMP hacia el 7-dic-2026 y entrega final hacia el 25-ene-2027. Ajusta las fechas cuando confirmes las reales.}
+
+{\footnotesize
+\begin{xltabular}{\linewidth}{@{}>{\raggedright\arraybackslash}p{2.3cm} >{\raggedright\arraybackslash}p{2.6cm} >{\raggedright\arraybackslash}X >{\raggedright\arraybackslash}p{4.0cm}@{}}
+\toprule
+Semana & Fases & Punto de control: qué debe estar listo & Si no lo está \\
+\midrule
+\endhead
+\bottomrule
+\endfoot
+2--8 nov & F0, F1 & Repo reorganizado, generadores con semilla, entorno del servidor guardado & Usar el \fichero{generador.py} existente con los rangos de D6 \\
+9--15 nov & F2, F3, F4 & \textbf{PC1}: secuencial en C validado con el ejemplo y el oráculo & Usar los prototipos de esta guía tal cual y seguir \\
+16--22 nov & F5, F6 & C++ y Rust; \texttt{make test} en verde & Posponer Rust: no puntúa en el enunciado \\
+23--29 nov & F7 & Cinco variantes OpenMP correctas & Quedarse con \emph{reduction} y dos fases \\
+30 nov--6 dic & F7, F11 (CPU) & \textbf{PC2}: escalabilidad, schedule y anidado medidos en el servidor; entrega opcional & Entregar con lo medido; el anidado puede ir después \\
+7--13 dic & F8 & \textbf{PC3}: CUDA base correcto con desglose de tiempos en el servidor & Prioridad máxima: es eliminatorio. Pedir ayuda en tutoría \\
+14--20 dic & F10, F9 & Jacobiano en secuencial, OpenMP y CUDA; primera optimización CUDA & F9 es opcional: saltarla antes que F10 \\
+21 dic--10 ene & F11, F12 & \textbf{PC4}: todos los benchmarks en CSV y figuras; contenedor funcionando & Reducir la rejilla de experimentos a S y M \\
+11--17 ene & F13, F14 & \textbf{PC5}: memoria completa en borrador y registro de IA cerrado & Recortar texto, no resultados \\
+18--24 ene & F15 & \texttt{reproduce.sh} regenera todo; revisión final; ensayo de la entrevista & Entregar lo que hay: el contenido mínimo ya existe desde PC4 \\
+\end{xltabular}
+}
+
+\section{Validación y reproducibilidad}\label{sec:validacion}
+
+\textbf{Tests.} \texttt{make test} ejecuta: el ejemplo (\texttt{grad = (8, 15, 8)}), el sistema (fila \texttt{(9, 24, 25)}), los casos límite del concepto 9.1 y dos casos aleatorios contra el oráculo. Cada versión paralela se compara después con el secuencial en el caso M. El prototipo ya incluye los dos primeros en el \fichero{Makefile}.
+
+\textbf{Tolerancias.}
+\begin{center}\small
+\begin{tabularx}{\linewidth}{@{}>{\raggedright\arraybackslash}p{5.2cm} l >{\raggedright\arraybackslash}X@{}}
+\toprule
+Comparación & Tolerancia & Motivo \\
+\midrule
+Secuencial frente a oráculo (puntos enteros) & $10^{-12}\max(1,|g|)$ & Error obtenido: 0 \\
+Paralelo \texttt{double} frente a secuencial & $10^{-12}\max(1,|g|)$ & Solo cambia el orden de las sumas (obtenido $\le5.4\cdot10^{-15}$) \\
+GPU \texttt{float} frente a secuencial & $10^{-4}\max(1,|g|)$ & $u_{\text{float}}\approx6\cdot10^{-8}$ por unos $10^3$ términos \\
+\bottomrule
+\end{tabularx}
+\end{center}
+
+\textbf{Semillas.} Función: 0; punto: 1; casos de oráculo: 7 y 11. Se escriben en la cabecera de cada fichero generado y en cada fila del CSV de tiempos.
+
+\textbf{Versiones fijadas.} Las de la tabla \ref{tab:versiones}, en \fichero{requirements.txt} y en el Dockerfile. \fichero{reproduce.sh} guarda las del servidor en \fichero{resultados/entorno.txt}.
+
+\begin{table}[h]
+\centering\small
+\begin{tabular}{@{}lll@{}}
+\toprule
+Herramienta & Versión probada en la guía & Servidor \\
+\midrule
+gcc & 13.3.0 (OpenMP 4.5 o superior) & Por medir \\
+nvcc & 12.0.140 (solo compilación) & Por medir \\
+rustc & 1.97.0 & Por medir \\
+Python & 3.13 & Por medir \\
+SymPy, NumPy, Polars, Matplotlib & 1.14.0, 2.5.3, 2.1.0, 3.11.2 & Fijar en \fichero{requirements.txt} \\
+\bottomrule
+\end{tabular}
+\caption{Versiones.}\label{tab:versiones}
+\end{table}
+
+\textbf{Metodología de medida.} La del concepto 9.2: calentamiento, $R=10$, mediana y desviación, afinidad, tiempos separados por etapa y verificación de cada ejecución medida.
+
+\textbf{Script único.} \fichero{reproduce.sh} (probado en la parte de CPU): guarda el entorno, compila, pasa los tests y el oráculo, ejecuta los benchmarks, genera las gráficas y, si hay GPU, barre los tamaños de bloque.
+\begin{lstlisting}[language=bash]
+make all
+make test
+for caso in "50 200 7" "300 2000 11"; do
+  python3 oraculo.py $caso
+  gcc -O2 -o compara compara.c poli.c -lm
+  ./compara
+done
+./bench.sh 1000 100000 5 resultados/tiempos.csv
+python3 graficas.py resultados/tiempos.csv
+if command -v nvidia-smi > /dev/null; then
+  make grad
+  for b in 32 64 128 256 512 1024; do ./grad 10000 1000000 "$b"; done > resultados/cuda.txt
+fi
+\end{lstlisting}
+Al llevarlo al repositorio final, amplía \fichero{bench.sh} a la rejilla de la sección \ref{sec:experimentos}.
+
+\section{Orientación a la entrega académica}\label{sec:entrega}
+
+El objetivo externo es la entrega de la práctica y, en tu caso, una nota de 9 o más para optar a matrícula de honor. Cómo orientar el trabajo:
+\begin{itemize}
+\item \textbf{Asegura lo eliminatorio primero}: CUDA correcto (PC3) vale más que cualquier optimización.
+\item \textbf{Rúbrica implícita}: cada requisito del enunciado debe tener una tabla o gráfica con nombre propio en la memoria: \texttt{omp\_get\_wtime}, escalabilidad, anidado, desglose CUDA, tamaños de bloque, Jacobiano, contenedor, prompts.
+\item \textbf{Análisis crítico}: para cada gráfica, una explicación causal (Amdahl, ancho de banda, contención, desequilibrio) apoyada en una medida adicional (\texttt{perf}, \texttt{ncu}, Karp-Flatt). Es lo que separa un 7 de un 9.
+\item \textbf{Parte opcional de CUDA}: con dos optimizaciones bien medidas (dos fases y ordenación por longitud, por ejemplo) y una descartada con datos basta para destacar.
+\item \textbf{IA (15\,\%)}: muestra la evolución, los errores de la IA que detectaste (por ejemplo, un \texttt{reduction} ingenuo $O(k^2)$ o un \texttt{atomicAdd} con CAS obsoleto) y cómo afinaste los prompts.
+\item \textbf{Entrevista}: debes poder explicar sin notas la fórmula del gradiente de un monomio, por qué CSR, por qué dos fases, qué mide cada evento CUDA y qué limita el speedup. Los temas 1, 2, 5 y 6 cubren esas preguntas.
+\item \textbf{Bibliografía}: cita las referencias relevantes del enunciado (Chandra; Mattson et al.; Brownlee; OpenAI) y las de esta guía que hayas leído.
+\end{itemize}
+
+\section*{Referencias}\addcontentsline{toc}{section}{Referencias}
+{\small
+\begin{enumerate}[leftmargin=*,label={[\arabic*]}]
+\item Amdahl, G. M. (1967). Validity of the single processor approach to achieving large scale computing capabilities. \emph{AFIPS Spring Joint Computer Conference}, 483--485.
+\item Baydin, A. G., Pearlmutter, B. A., Radul, A. A. y Siskind, J. M. (2018). Automatic differentiation in machine learning: a survey. \emph{Journal of Machine Learning Research}, 18(153), 1--43.
+\item Bell, N. y Garland, M. (2009). Implementing sparse matrix-vector multiplication on throughput-oriented processors. \emph{Proceedings of SC'09}.
+\item Bradbury, J. et al. (2018). JAX: composable transformations of Python+NumPy programs. \url{https://github.com/jax-ml/jax}.
+\item Brownlee, J. (2023). \emph{Prompt Engineering for Coders}. Machine Learning Mastery (citada en el enunciado).
+\item Chandra, R. et al. (2001). \emph{Parallel Programming in OpenMP}. Morgan Kaufmann.
+\item Goldberg, D. (1991). What every computer scientist should know about floating-point arithmetic. \emph{ACM Computing Surveys}, 23(1), 5--48.
+\item Griewank, A. y Walther, A. (2008). \emph{Evaluating Derivatives: Principles and Techniques of Algorithmic Differentiation} (2.ª ed.). SIAM.
+\item Gustafson, J. L. (1988). Reevaluating Amdahl's law. \emph{Communications of the ACM}, 31(5), 532--533.
+\item Higham, N. J. (2002). \emph{Accuracy and Stability of Numerical Algorithms} (2.ª ed.). SIAM.
+\item Hoefler, T. y Belli, R. (2015). Scientific benchmarking of parallel computing systems. \emph{Proceedings of SC'15}.
+\item Hwu, W. W., Kirk, D. B. y El Hajj, I. (2022). \emph{Programming Massively Parallel Processors} (4.ª ed.). Morgan Kaufmann.
+\item Knuth, D. E. (1997). \emph{The Art of Computer Programming, vol. 2: Seminumerical Algorithms} (3.ª ed.), sección 4.6.3. Addison-Wesley.
+\item Kurtzer, G. M., Sochat, V. y Bauer, M. W. (2017). Singularity: scientific containers for mobility of compute. \emph{PLoS ONE}, 12(5), e0177459.
+\item Mattson, T. G., Sanders, B. A. y Massingill, B. L. (2004). \emph{Patterns for Parallel Programming}. Addison-Wesley.
+\item Meurer, A. et al. (2017). SymPy: symbolic computing in Python. \emph{PeerJ Computer Science}, 3, e103.
+\item Moses, W. y Churavy, V. (2020). Instead of rewriting foreign code for machine learning, automatically synthesize fast gradients. \emph{NeurIPS 2020}.
+\item NVIDIA. \emph{CUDA C++ Programming Guide} y \emph{CUDA C++ Best Practices Guide}. \url{https://docs.nvidia.com/cuda/} (versión según el toolkit del servidor).
+\item OpenAI (2023). Best practices for prompt engineering with AI models (citada en el enunciado). \url{https://platform.openai.com/docs/guides/gpt-best-practices}.
+\item OpenMP Architecture Review Board (2021). \emph{OpenMP Application Programming Interface, Version 5.2}. \url{https://www.openmp.org/specifications/}.
+\item Paszke, A. et al. (2019). PyTorch: an imperative style, high-performance deep learning library. \emph{NeurIPS 2019}.
+\item Saad, Y. (2003). \emph{Iterative Methods for Sparse Linear Systems} (2.ª ed.). SIAM.
+\item Verschelde, J. y Yoffe, G. (2012). Evaluating polynomials in several variables and their derivatives on a GPU computing processor. \emph{IEEE IPDPS Workshops} \pv.
+\item Williams, S., Waterman, A. y Patterson, D. (2009). Roofline: an insightful visual performance model for multicore architectures. \emph{Communications of the ACM}, 52(4), 65--76.
+\end{enumerate}
+}

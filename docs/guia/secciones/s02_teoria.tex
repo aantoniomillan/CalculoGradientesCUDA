@@ -1,0 +1,431 @@
+\section{Fundamentos matemáticos}\label{tema:mat}
+\soporte{F3, F4, F6 y F10}
+
+\concepto{1.1 Monomio y polinomio multivariable}
+\que Un monomio en $N$ variables es $c\,x_1^{e_1}x_2^{e_2}\cdots x_N^{e_N}$ con coeficiente $c\in\mathbb{R}$ y exponentes $e_j\in\mathbb{N}$. Un polinomio es una suma de $M$ monomios:
+\[
+f(\mathbf{x})=\sum_{m=1}^{M} c_m \prod_{j=1}^{N} x_j^{e_{mj}} .
+\]
+Llamamos $k_m$ al número de variables con $e_{mj}>0$ en el monomio $m$ (sus \emph{factores}) y $F=\sum_m k_m$ al total de factores. Un término constante es un monomio con $k_m=0$.
+
+\porque El enunciado pide funciones \emph{arbitrarias compuestas por múltiples monomios y variables}. Los polinomios son exactamente eso y permiten derivar de forma exacta sin cálculo simbólico general. En casos realistas $k_m\ll N$: cada monomio usa pocas variables. Esa dispersión decide la estructura de datos (tema \ref{tema:datos}) y el coste ($O(F)$ y no $O(MN)$).
+
+\como En el ejemplo $f=3xy+4yz+2x+5$: $N=3$, $M=4$, $k=(2,2,1,0)$ y $F=5$.
+
+\alt Funciones generales (senos, exponenciales) exigirían un árbol de expresión y diferenciación automática o simbólica. Son más generales, pero más lentas y fuera del enunciado, que fija monomios.
+
+\concepto{1.2 Derivada parcial y gradiente}
+\que La derivada parcial $\partial f/\partial x_j$ mide la variación de $f$ al mover solo $x_j$. El gradiente es el vector de las $N$ derivadas parciales: $\nabla f=(\partial f/\partial x_1,\dots,\partial f/\partial x_N)$.
+
+\porque Es lo que hay que calcular. Por linealidad de la derivada, el gradiente es la suma de los gradientes de cada monomio. Eso permite repartir monomios entre hilos y sumar contribuciones.
+
+\como Para un monomio, por las reglas del producto y de la potencia:
+\[
+\frac{\partial}{\partial x_j}\Big(c_m\prod_{l} x_l^{e_{ml}}\Big)=
+\begin{cases}
+c_m\, e_{mj}\, x_j^{e_{mj}-1}\prod_{l\neq j} x_l^{e_{ml}} & \text{si } e_{mj}>0,\\
+0 & \text{si } e_{mj}=0.
+\end{cases}
+\]
+Así, $\partial f/\partial x_j=\sum_{m:\,e_{mj}>0}(\dots)$. En el ejemplo, $\nabla f=(3y+2,\;3x+4z,\;4y)$ y $\nabla f(1,2,3)=(8,15,8)$, que es el caso de prueba obligatorio.
+
+\alt Ninguna para la definición; las alternativas están en cómo calcularla (concepto 1.3).
+
+\concepto{1.3 Métodos para calcular derivadas}
+\que Hay cuatro familias:
+\begin{itemize}
+\item \textbf{Simbólica}: manipula la expresión y obtiene la fórmula (SymPy, Mathematica).
+\item \textbf{Analítica estructurada}: aplica la fórmula del concepto 1.2 sobre una estructura conocida (la nuestra).
+\item \textbf{Diferencias finitas}: aproxima $\partial f/\partial x_j\approx\big(f(\mathbf{x}+h\mathbf{e}_j)-f(\mathbf{x}-h\mathbf{e}_j)\big)/2h$.
+\item \textbf{Diferenciación automática (AD)}: aplica la regla de la cadena a cada operación del programa, en modo directo o inverso.
+\end{itemize}
+
+\porque Usamos la analítica estructurada porque es exacta (salvo redondeo), cuesta $O(F)$ y su patrón de acceso es regular, lo que la hace paralelizable. El enunciado pide además automatizar el procedimiento paso a paso del ejemplo, que es justo derivar término a término.
+
+\como El algoritmo concreto está en el tema \ref{tema:sec}. El modo inverso de AD aplicado a un producto $\prod_t p_t$ da los productos prefijo y sufijo que usaremos (ejemplo de Speelpenning, en Griewank y Walther, 2008).
+
+\alt
+\begin{itemize}
+\item Diferencias finitas: triviales de programar, pero cuestan $2N$ evaluaciones completas ($O(NF)$) y tienen error de truncamiento $O(h^2)$ más error de redondeo $O(\varepsilon/h)$. El $h$ óptimo es del orden de $\varepsilon^{1/3}\approx 6\cdot10^{-6}$ y deja unos 10 dígitos correctos. Sirven como comprobación cruzada, no como base.
+\item Simbólica: exacta en aritmética racional, pero muy lenta y con crecimiento de expresiones. La usamos solo como oráculo para casos pequeños.
+\item AD con librerías (JAX, PyTorch, Enzyme): general, pero añade dependencias, no se adapta a la estructura dispersa y no es lo que se evalúa.
+\item Paso complejo $\operatorname{Im} f(\mathbf{x}+ih\mathbf{e}_j)/h$: exacto a precisión de máquina, pero sigue costando $N$ evaluaciones.
+\end{itemize}
+
+\concepto{1.4 Aritmética en coma flotante}
+\que IEEE 754 \texttt{double} tiene 53 bits de mantisa: redondeo unitario $u=2^{-53}\approx1.11\cdot10^{-16}$ y rango aproximado $10^{\pm308}$. Cada operación introduce un error relativo de como mucho $u$. La suma \emph{no es asociativa}: $(a+b)+c$ puede diferir de $a+(b+c)$.
+
+\porque Tiene tres consecuencias directas:
+\begin{enumerate}
+\item Las versiones paralelas suman en otro orden. Su resultado puede diferir del secuencial en los últimos bits, así que la comparación ha de usar una tolerancia, no la igualdad.
+\item Los atómicos y la planificación dinámica hacen que el orden cambie entre ejecuciones: el resultado no es determinista.
+\item Con exponentes altos se desborda: $1.5^{100}\approx4\cdot10^{17}$ cabe, pero un monomio de 100 factores con $x=2$ y $e=100$ vale $2^{10^4}$, que es \texttt{inf}.
+\end{enumerate}
+
+\como La cota de error de una suma de $n$ términos es aproximadamente $(n-1)\,u\sum|t_i|$. Si hay signos mezclados, $\sum|t_i|$ puede ser mucho mayor que $|\sum t_i|$ (cancelación) y el error relativo crece. Por eso el criterio recomendado es
+\[
+|g_j-g_j^{\text{ref}}|\le \text{rtol}\cdot\max\!\big(1,|g_j^{\text{ref}}|\big),
+\]
+con $\text{rtol}=10^{-12}$ para \texttt{double} con coeficientes positivos y puntos en $[0.5,1.5]$. Si aparecen cancelaciones, se compara contra $\sum|t_i|$. Para evitar desbordamientos, los generadores deben limitar $e\le5$, $k\le16$ y $x\in[0.5,1.5]$: el peor caso es $1.5^{80}\approx1.2\cdot10^{14}$ y $0.5^{80}\approx8\cdot10^{-25}$, ambos representables.
+
+\begin{trampa}
+Comparar con \texttt{==} entre la versión secuencial y la paralela, o usar \texttt{-ffast-math}, que permite reordenar operaciones y rompe la reproducibilidad. Si usas \texttt{-ffast-math}, mide el error antes de adoptarlo.
+\end{trampa}
+
+\alt Suma de Kahan o suma por parejas (\emph{pairwise}): reducen el error a casi $O(u)$ a cambio de 2 a 4 veces más operaciones. Es razonable solo si se observan cancelaciones. \texttt{long double} o aritmética racional son útiles solo para el oráculo.
+
+\section{Datos, formatos y generadores}\label{tema:datos}
+\soporte{F1, F2 y F3}
+
+\concepto{2.1 Formato de entrada en texto}
+\que Un formato textual que reproduce la notación del enunciado: \texttt{f(x, y, z) = 3xy + 4yz + 2x + 5} y ecuaciones como \texttt{3x\^{}2 + yz + z + 5 = 2}.
+
+\porque El enunciado trabaja así y facilita depurar a mano. Para que sea inequívoco con muchas variables, fijamos esta regla: \textbf{una variable es una letra seguida opcionalmente de dígitos} (\texttt{x}, \texttt{y}, \texttt{x12}). Así \texttt{xy} es $x\cdot y$ y \texttt{x12x3\^{}2} es $x_{12}x_3^2$. Un nombre nunca empieza por dígito, de modo que no se confunde con el coeficiente.
+
+\como Gramática (EBNF) que implementa \fichero{poli.c}:
+\begin{lstlisting}
+ecuacion := expr [ "=" numero ]
+expr     := [ "+" | "-" ] termino { ( "+" | "-" ) termino }
+termino  := [ numero ] { [ "*" ] variable [ "^" entero ] }
+variable := letra { digito }
+\end{lstlisting}
+Fichero de función: línea 1 con los nombres de las variables (fija el orden del gradiente), línea 2 con la expresión, línea 3 con el punto. Fichero de sistema: línea 1 con las variables, línea 2 con $K$ y $K$ líneas de ecuación; el punto, al final. Si una variable se repite dentro de un monomio (\texttt{xx}), se suman sus exponentes; los monomios repetidos (\texttt{2x + ... + 2x}) se dejan separados porque la derivada es lineal.
+
+\alt
+\begin{itemize}
+\item CSV de dos tablas (el \fichero{generador.py} de la rama): fácil de generar con Polars, pero más lento de leer en C que un binario y sin la notación del enunciado.
+\item Binario (cabecera con $N,M,F$ y los arrays volcados con \texttt{fwrite}): carga casi a la velocidad del disco. Recomendado para los casos grandes de benchmark, siempre que el texto siga siendo el formato de validación.
+\item Formato con separador explícito (\texttt{3*x0*x1\^{}2}): más robusto, pero se aleja del enunciado. El parser lo acepta igualmente, porque \texttt{*} es opcional.
+\end{itemize}
+
+\concepto{2.2 Parser}
+\que El código que convierte el texto en la estructura de datos.
+
+\porque Es la pieza que hace la solución \emph{dinámica}: el número de variables y monomios solo se conoce al leer.
+
+\como Analizador de una pasada con un puntero que avanza (\emph{scanner} manual). Coste $O(L)$ en la longitud del texto, más la búsqueda del nombre. En el prototipo la búsqueda es lineal ($O(N)$ por factor): vale para validar, pero para $N=10^4$ hay que usar una tabla hash o, mejor, extraer el índice del propio nombre (\texttt{x12} es la variable 12). Fragmento central:
+\begin{lstlisting}[language=C]
+while (*c == '*' || isalpha((unsigned char)*c)) {
+    if (*c == '*') { c++; continue; }
+    const char *s = c++;
+    while (isdigit((unsigned char)*c)) c++;
+    int v = buscaVar(s, (int)(c - s), vNombres, nVars);
+    if (v < 0) return -1;
+    int e = 1;
+    if (*c == '^') { c++; e = (int)strtol(c, (char **)&c, 10); }
+    ...
+}
+\end{lstlisting}
+
+\alt \texttt{flex}/\texttt{bison} (potente, pero excesivo para esta gramática), expresiones regulares (\texttt{regex.h}, lentas y frágiles con signos) o parsear en Python y pasar binario a C (rápido de escribir, pero el enunciado pide una función C que represente la función).
+
+\begin{trampa}
+Medir el tiempo del parser junto al del gradiente. En casos grandes el parseo de texto puede costar más que el cálculo y ocultaría el speedup. Mide y reporta las dos cosas por separado.
+\end{trampa}
+
+\concepto{2.3 Representación densa frente a dispersa (CSR)}
+\que
+\begin{itemize}
+\item \textbf{Densa}: matriz $M\times N$ de exponentes (la decisión inicial del 18-oct).
+\item \textbf{COO}: lista de tripletas (monomio, variable, exponente).
+\item \textbf{CSR} (\emph{compressed sparse row}): \texttt{vOff[M+1]} indica dónde empiezan los factores de cada monomio en \texttt{vIdVar[F]} y \texttt{vExp[F]}.
+\item \textbf{ELL}: cada monomio con $k_{\max}$ huecos.
+\item \textbf{CSC}: la transpuesta, agrupada por variable.
+\end{itemize}
+
+\porque Usamos CSR porque cuesta $O(M+F)$ en memoria y en recorrido, frente a $O(MN)$ de la densa. Con los tamaños de benchmark propuestos ($k$ uniforme en $[1,16]$, media 8.5):
+
+\begin{center}\small
+\begin{tabular}{@{}lrrrrrr@{}}
+\toprule
+Caso & $N$ & $M$ & $F$ & CSR & Extra dos fases & Densa (\texttt{int32}) \\
+\midrule
+S & $10^3$ & $10^4$ & $8.5\cdot10^4$ & 0.8 MB & 1.0 MB & 0.04 GB \\
+M & $10^4$ & $10^6$ & $8.5\cdot10^6$ & 80 MB & 102 MB & 40 GB \\
+L & $10^5$ & $10^7$ & $8.5\cdot10^7$ & 800 MB & 1020 MB & 4000 GB \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+CSR $=8M+4(M+1)+8F$ bytes; la columna \emph{extra dos fases} suma \texttt{vContrib} ($8F$), la CSC ($4F$) y sus desplazamientos ($4(N+1)$). La densa es inviable desde el caso M, y en una GPU de 6 GB solo caben S y M en forma densa (y M ni siquiera). En CSR, el caso L entero ocupa unos 1.8 GB: cabe en 6 GB.
+
+\como Estructura usada en toda la guía (\fichero{poli.h}):
+\begin{lstlisting}[language=C]
+typedef struct {
+    int nVars;
+    int nMon;
+    int nFact;
+    double *vCoef;
+    int *vOff;
+    int *vIdVar;
+    int *vExp;
+} Poli;
+\end{lstlisting}
+El ejemplo $3xy+4yz+2x+5$ queda como \texttt{vCoef = \{3,4,2,5\}}, \texttt{vOff = \{0,2,4,5,5\}}, \texttt{vIdVar = \{0,1,1,2,0\}} y \texttt{vExp = \{1,1,1,1,1\}}.
+
+\alt
+\begin{itemize}
+\item Densa: acceso trivial y buena si $k_m\approx N$ (funciones muy densas y pequeñas, como el ejemplo). Medir la densidad $F/(MN)$: si supera un 30\,\% aproximadamente, la densa puede competir \pv.
+\item ELL: accesos perfectamente alineados en GPU (coalescing), pero desperdicia $M(k_{\max}-\bar k)$ huecos: casi el doble con $k\in[1,16]$.
+\item COO: más simple de construir, pero repite el índice de monomio ($4F$ bytes más) y obliga a atómicos.
+\item Tipos más pequeños (\texttt{uint8\_t} para exponentes si $e\le255$, \texttt{uint16\_t} para variables si $N\le65535$) reducen tráfico de memoria. Es una optimización válida en un problema limitado por memoria (tema \ref{tema:rend}).
+\end{itemize}
+
+\concepto{2.4 AoS frente a SoA}
+\que \emph{Array of Structures} (un array de \texttt{struct \{int var; int exp;\}}) frente a \emph{Structure of Arrays} (\texttt{vIdVar[]} y \texttt{vExp[]} separados).
+
+\porque En GPU, hilos consecutivos leen posiciones consecutivas de cada array (coalescing). En CPU, SoA facilita la vectorización SIMD. Usamos SoA.
+
+\como Ya está así en \texttt{Poli}.
+
+\alt AoS de 8 bytes (\texttt{int2}) también se lee bien en GPU y mejora la localidad en CPU. Es una variante a medir en F9, no una decisión crítica.
+
+\concepto{2.5 Generadores de datos}
+\que Programas Python que crean funciones y sistemas aleatorios con parámetros $N$, $M$, $k_{\max}$, $e_{\max}$, $K$ y semilla.
+
+\porque Hacen falta casos grandes para medir y casos pequeños con respuesta conocida para validar. El enunciado admite \emph{ficheros de entrada elaborados por el alumno}.
+
+\como Reglas para ambos generadores:
+\begin{itemize}
+\item Generador de números con semilla explícita (\texttt{numpy.random.default\_rng(semilla)} o \texttt{random.Random(semilla)}), nunca el estado global.
+\item Rangos seguros: $c\in[1,9]$, $e\in[1,5]$, $k\in[1,16]$, punto en $[0.5,1.5]$ (concepto 1.4).
+\item Variables \texttt{x0} a \texttt{x\{N-1\}}, sin repetir dentro de un monomio (\texttt{rng.sample}).
+\item Escritura en texto (validación) y en binario (benchmarks grandes).
+\item Generar por bloques, como ya hace \fichero{generador.py}, para no agotar memoria con $M=10^7$.
+\end{itemize}
+
+\alt Generar en C (más rápido, pero duplicas lógica). Usar el \fichero{generador.py} existente cambiando \texttt{eMax} a 5, \texttt{cMax} a 16 y los nombres a \texttt{x<id>}, y añadiéndole el punto: es la opción más barata.
+
+\concepto{2.6 Oráculo con SymPy}
+\que SymPy es una librería de cálculo simbólico en Python. Deriva la expresión y la evalúa con aritmética racional exacta si el punto es entero o racional.
+
+\porque Da una referencia independiente de nuestro código. Es la mejor defensa ante el requisito eliminatorio de CUDA (\emph{si los resultados no coinciden no se sigue corrigiendo}).
+
+\como Prototipo probado en \fichero{docs/guia/codigo/oraculo.py}. Con puntos enteros en $\{-2,-1,1,2,3\}$ el gradiente de referencia es entero, y la versión C dio error 0 en dos casos ($N=50$, $M=200$, semilla 7; $N=300$, $M=2000$, semilla 11):
+\begin{lstlisting}[language=Python]
+vSim = sp.symbols(vNombres)
+sust = dict(zip(vSim, vPunto))
+vGrad = [sp.diff(expr, s).subs(sust) for s in vSim]
+\end{lstlisting}
+
+\alt
+\begin{itemize}
+\item Para casos grandes SymPy es demasiado lento. Se usa un oráculo de dos niveles: el secuencial en C, validado contra SymPy en casos pequeños, pasa a ser la referencia de las versiones paralelas en los grandes.
+\item NumPy con \texttt{float128} o \texttt{mpmath} sirven como oráculo de precisión alta.
+\item JAX como oráculo de AD: posible, pero añade una dependencia pesada.
+\end{itemize}
+
+\section{Algoritmo secuencial}\label{tema:sec}
+\soporte{F4 y F5}
+
+\concepto{3.1 Cálculo de potencias enteras}
+\que Calcular $x^e$ con $e$ entero.
+
+\porque Es la operación más repetida: dos veces por factor. Su coste domina el cálculo.
+
+\como Exponenciación por cuadrados, $O(\log e)$ multiplicaciones (Knuth, TAOCP vol. 2, 4.6.3). Para la derivada se calcula $b=x^{e-1}$ una sola vez y se obtienen $e\cdot b$ y $x^e=b\cdot x$:
+\begin{lstlisting}[language=C]
+double powi(double x, int e) {
+    double r = 1.0;
+    while (e > 0) {
+        if (e & 1) r *= x;
+        x *= x;
+        e >>= 1;
+    }
+    return r;
+}
+\end{lstlisting}
+
+\alt
+\begin{itemize}
+\item \texttt{pow()} de \texttt{math.h}: general (exponentes reales), pero más lenta y con posibles errores de 1 ulp \pv. En CUDA, \texttt{pow} en \texttt{double} es especialmente cara.
+\item Bucle de $e$ multiplicaciones: igual de bueno para $e\le3$, peor para exponentes grandes.
+\item Tabla precomputada \texttt{mPot[v][e]} para todas las variables y exponentes ($N\cdot e_{\max}$ valores): convierte cada potencia en una lectura. Conviene si $N\cdot e_{\max}\cdot8$ bytes cabe en caché (por ejemplo $10^4\cdot5\cdot8=400$ KB) y si cada variable aparece en muchos monomios. Se mide en F9.
+\end{itemize}
+
+\concepto{3.2 Algoritmo del gradiente: ingenuo, división y prefijo-sufijo}
+\que Tres formas de obtener, para cada factor $t$ de un monomio, el producto del resto de factores:
+\begin{itemize}
+\item \textbf{Ingenuo}: recalcula el producto de los otros $k-1$ factores. $O(k^2)$ por monomio.
+\item \textbf{División}: calcula $P=\prod_t p_t$ y usa $P/p_t$. $O(k)$, pero falla si algún $x=0$ y pierde precisión cerca de cero.
+\item \textbf{Prefijo-sufijo}: $\text{pre}_t=\prod_{s<t}p_s$ y $\text{suf}_t=\prod_{s>t}p_s$, en dos pasadas. $O(k)$, sin divisiones y robusto.
+\end{itemize}
+
+\porque Usamos prefijo-sufijo: es el modo inverso de AD aplicado al producto. La diferencia es medible: en la máquina de pruebas el algoritmo ingenuo con 2 hilos fue 3 veces \emph{más lento} que el prefijo-sufijo con 1 hilo (sección \ref{tema:rend}).
+
+\como Implementación de referencia (\fichero{poli.c}, probada con el ejemplo y con el oráculo):
+\begin{lstlisting}[language=C]
+void gradSec(const Poli *p, const double *vX, double *vGrad) {
+    double vPre[KMAX], vDer[KMAX];
+    memset(vGrad, 0, sizeof(double) * p->nVars);
+    for (int m = 0; m < p->nMon; m++) {
+        int ini = p->vOff[m], k = p->vOff[m + 1] - ini;
+        double acum = p->vCoef[m];
+        for (int t = 0; t < k; t++) {
+            double x = vX[p->vIdVar[ini + t]];
+            int e = p->vExp[ini + t];
+            double base = powi(x, e - 1);
+            vPre[t] = acum;
+            vDer[t] = e * base;
+            acum *= base * x;
+        }
+        double suf = 1.0;
+        for (int t = k - 1; t >= 0; t--) {
+            int v = p->vIdVar[ini + t];
+            double x = vX[v];
+            int e = p->vExp[ini + t];
+            vGrad[v] += vPre[t] * vDer[t] * suf;
+            suf *= powi(x, e);
+        }
+    }
+}
+\end{lstlisting}
+Salida del programa \fichero{ejemplo.c}: \texttt{f = 37} y \texttt{grad = (8, 15, 8)}.
+
+\begin{trampa}
+\texttt{KMAX} limita los factores por monomio (64 en el prototipo). Si el generador produce $k>$\texttt{KMAX} (el \fichero{generador.py} actual llega a 100), el programa escribe fuera del array. Valida $k_{\max}$ al leer o reserva el buffer dinámicamente.
+\end{trampa}
+
+\alt
+\begin{itemize}
+\item La segunda pasada recalcula \texttt{powi(x, e)}. Guardar también $p_t$ en un tercer buffer ahorra esa potencia a cambio de memoria local. En GPU puede no compensar por la presión de registros: se mide.
+\item Horner multivariable reduce multiplicaciones al evaluar $f$, pero requiere reordenar los monomios en un árbol. Es más complejo y paraleliza peor.
+\end{itemize}
+
+\concepto{3.3 Coste y memoria del secuencial}
+\que Tiempo $O(F\log e_{\max})$ y memoria $O(M+F+N)$.
+
+\porque Permite predecir tiempos y elegir tamaños: el tiempo debe crecer linealmente con $F$. Si no lo hace, hay un problema de caché (por ejemplo, $N$ demasiado grande para que \texttt{vX} quepa en L2).
+
+\como Por factor: 2 llamadas a \texttt{powi} (unas 3 a 6 multiplicaciones cada una con $e\le5$), 4 multiplicaciones y 1 suma; se leen 8 bytes (\texttt{vIdVar} y \texttt{vExp}) más un acceso irregular a \texttt{vX} y otro a \texttt{vGrad}. En la máquina de pruebas, $F=8.5\cdot10^5$ tardó unos 14 ms (unos 16 ns por factor).
+
+\alt No hay algoritmo asintóticamente mejor: cualquier método debe leer los $F$ factores.
+
+\concepto{3.4 C, C++ y Rust}
+\que Los tres lenguajes de las versiones secuenciales.
+
+\porque C es la base: OpenMP y CUDA se integran sin intermediarios y das control total de la memoria. C++ aporta \texttt{std::vector} y RAII. Rust aporta seguridad de memoria. Las tres versiones sirven como comprobación cruzada y como comparación de rendimiento.
+
+\como Mantén la misma estructura CSR y el mismo algoritmo en los tres para que la comparación sea justa. Versión Rust probada (\fichero{grad.rs}, salida \texttt{[8.0, 15.0, 8.0]}):
+\begin{lstlisting}
+fn gradSec(p: &Poli, vX: &[f64]) -> Vec<f64> {
+    let mut vGrad = vec![0.0; p.nVars];
+    let mut vPre = Vec::new();
+    for m in 0..p.vCoef.len() {
+        let (ini, fin) = (p.vOff[m], p.vOff[m + 1]);
+        vPre.clear();
+        let mut acum = p.vCoef[m];
+        for t in ini..fin {
+            let x = vX[p.vIdVar[t]];
+            let base = x.powi(p.vExp[t] - 1);
+            vPre.push(acum * p.vExp[t] as f64 * base);
+            acum *= base * x;
+        }
+        let mut suf = 1.0;
+        for t in (ini..fin).rev() {
+            vGrad[p.vIdVar[t]] += vPre[t - ini] * suf;
+            suf *= vX[p.vIdVar[t]].powi(p.vExp[t]);
+        }
+    }
+    vGrad
+}
+\end{lstlisting}
+Rust exige \texttt{\#![allow(non\_snake\_case)]} para respetar tu nomenclatura camelCase, porque su convención es \texttt{snake\_case}.
+
+\alt
+\begin{itemize}
+\item En Rust, la paralelización natural es \texttt{rayon} (\texttt{par\_iter}); no existe OpenMP nativo, y CUDA desde Rust depende de crates poco maduros \pv. Por eso la paralela se queda en C.
+\item \texttt{nvcc} compila el código CUDA como C++. Tu ``CUDA en C'' será C++ con estilo C: \texttt{malloc}, punteros y sin clases. Es normal y aceptado.
+\item Las comprobaciones de límites de Rust pueden costar algo de tiempo; los iteradores suelen eliminarlas. Mídelo y explícalo en la memoria en lugar de suponerlo.
+\end{itemize}
+
+\concepto{3.5 Opciones de compilación}
+\que Las opciones que controlan optimización, avisos y diagnóstico.
+
+\porque Las comparaciones de rendimiento solo son válidas con las mismas opciones en todas las versiones.
+
+\como \texttt{-O3 -Wall -Wextra -std=c11} para medir, \texttt{-g -fsanitize=address,undefined} para los tests y \texttt{-fopenmp} para OpenMP. En CUDA: \texttt{nvcc -O3 -arch=sm\_XY -Xptxas=-v}. Todo el código de la guía compila sin avisos con \texttt{-Wall -Wextra}.
+
+\alt \texttt{-march=native} activa AVX2 o AVX-512 y suele acelerar, pero el binario solo vale para la máquina donde compilas: compila en el servidor. \texttt{-ffast-math}: ver la trampa del concepto 1.4. Clang en lugar de gcc: válido para comparar.
+
+\section{Rendimiento y medida}\label{tema:rend}
+\soporte{F7, F8, F9 y F11}
+
+\concepto{4.1 Medición de tiempos}
+\que Tiempo de pared (\emph{wall-clock}, lo que tarda en terminar) frente a tiempo de CPU (suma de lo que consumen todos los hilos).
+
+\porque El speedup se calcula con tiempo de pared. El enunciado aconseja \texttt{omp\_get\_wtime()} en CPU y pide desglosar transferencias y cómputo en GPU.
+
+\como \texttt{omp\_get\_wtime()} en OpenMP, \texttt{clock\_gettime(CLOCK\_MONOTONIC)} en el secuencial de C, \texttt{std::chrono::steady\_clock} en C++, \texttt{std::time::Instant} en Rust y \texttt{cudaEventRecord}/\texttt{cudaEventElapsedTime} en CUDA (tema \ref{tema:cuda}). Mide solo la región de interés y reporta aparte lectura, parseo y cálculo.
+
+\begin{trampa}
+\texttt{clock()} devuelve tiempo de CPU acumulado de todos los hilos. Con 8 hilos marca unas 8 veces el tiempo real y \emph{oculta} el speedup. Tampoco midas un kernel CUDA con un reloj de CPU sin \texttt{cudaDeviceSynchronize()}: el lanzamiento es asíncrono.
+\end{trampa}
+
+\alt \texttt{gettimeofday} (obsoleto y no monótono), \texttt{rdtsc} (ciclos, poco portable) o \texttt{perf stat} (útil para contadores, no para tiempos por región).
+
+\concepto{4.2 Speedup, eficiencia y escalabilidad}
+\que Speedup $S_p=T_1/T_p$; eficiencia $E_p=S_p/p$. \emph{Escalado fuerte}: problema fijo y más hilos. \emph{Escalado débil}: problema proporcional a los hilos; se mide si $T_p$ se mantiene constante.
+
+\porque El enunciado pide un \emph{análisis de escalabilidad} con \emph{análisis crítico}: no basta la tabla, hay que explicar por qué la eficiencia cae.
+
+\como $T_1$ debe ser el \textbf{mejor secuencial}, no la versión paralela ejecutada con 1 hilo. Medida orientativa ($N=10^3$, $M=10^5$, $F=853\,478$, máquina de nube de 2 vCPU, gcc \texttt{-O2}, mediana de 3 repeticiones):
+
+\begin{center}\small
+\begin{tabular}{@{}lrrrr@{}}
+\toprule
+Variante & 1 hilo (s) & 2 hilos (s) & Speedup 2 hilos & Eficiencia \\
+\midrule
+Secuencial prefijo-sufijo & 0.0138 & -- & 1.00 & -- \\
+\emph{reduction} (ingenuo $O(k^2)$) & 0.0801 & 0.0402 & 0.34 & 0.17 \\
+\emph{atomic} (ingenuo $O(k^2)$) & 0.0806 & 0.0456 & 0.30 & 0.15 \\
+Dos fases (prefijo-sufijo) & 0.0203 & 0.0109 & 1.27 & 0.63 \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Conclusiones que se repetirán en el servidor: un algoritmo peor no se arregla con más hilos, y la versión de dos fases con 1 hilo es más lenta que el secuencial porque hace una pasada de memoria extra (\texttt{vContrib}). Su beneficio aparece al crecer los hilos.
+
+\alt Reportar \emph{throughput} (factores por segundo) en lugar de tiempo. Es útil para comparar tamaños distintos y lo recomiendo como columna adicional.
+
+\concepto{4.3 Leyes de Amdahl y Gustafson}
+\que Amdahl: si una fracción $s$ es secuencial, $S_p\le 1/\big(s+(1-s)/p\big)$, con techo $1/s$. Gustafson: si el problema crece con $p$, el speedup escalado es $S_p=s+(1-s)\,p$.
+
+\porque Explican los resultados. Si el parseo (secuencial) es el 20\,\% del tiempo total, el speedup global nunca pasa de 5, aunque el cálculo escale perfectamente.
+
+\como Mide la fracción secuencial real (lectura, transposición CSC, reserva de memoria) y superpón la curva de Amdahl en la gráfica de speedup.
+
+\alt Ley de Karp-Flatt (fracción serie experimental $e=(1/S_p-1/p)/(1-1/p)$): si $e$ crece con $p$, el problema es la sobrecarga paralela y no la parte secuencial. Es muy útil para el análisis crítico.
+
+\concepto{4.4 Jerarquía de memoria, intensidad aritmética y roofline}
+\que La intensidad aritmética $I$ es el número de operaciones en coma flotante por byte movido desde memoria. El modelo roofline (Williams et al., 2009) acota el rendimiento: $P\le\min(P_{\text{pico}},\,I\cdot B)$, con $B$ el ancho de banda.
+
+\porque Nuestro problema tiene $I$ baja: por factor se mueven unos 16 a 24 bytes (índice, exponente, lectura de \texttt{x} y, en dos fases, escritura de \texttt{vContrib}) para unas 10 operaciones, es decir, $I\approx0.4$ a $0.6$ flop/byte. Está \textbf{limitado por memoria} en CPU, y probablemente en GPU con \texttt{float}. Con \texttt{double} en una GeForce, el FP64 reducido puede acercar el límite al cómputo \pv. Este diagnóstico decide las optimizaciones: reducir bytes (tipos más pequeños, evitar la segunda pasada) antes que reducir operaciones.
+
+\como Mide el ancho de banda con STREAM (\emph{triad}) en el servidor y compara con tus bytes por segundo efectivos ($F\cdot$bytes por factor$/T$). Si estás cerca del 60 a 80\,\% de STREAM, ya no hay mucho margen.
+
+\alt Contar ciclos o instrucciones con \texttt{perf stat} (IPC, fallos de caché) da una visión complementaria a nivel de CPU.
+
+\concepto{4.5 Cuellos de botella de este problema}
+\begin{itemize}
+\item \textbf{Accesos irregulares a \texttt{vX}}: \texttt{vIdVar} es aleatorio. Con $N=10^4$, \texttt{vX} ocupa 80 KB y cabe en L2; con $N=10^5$ ocupa 800 KB y puede no caber. Mide el tiempo por factor variando $N$ con $F$ fijo.
+\item \textbf{Conflictos de escritura en \texttt{vGrad}}: varios monomios contribuyen a la misma variable. Con $N$ pequeño la contención de atómicos se dispara.
+\item \textbf{Desequilibrio de carga}: $k_m$ varía de 1 a 16, así que \texttt{schedule(static)} puede repartir mal.
+\item \textbf{Núcleos heterogéneos}: el i5-13420H mezcla núcleos P y E \pv. Con reparto estático, los hilos en núcleos E terminan después y frenan a todos.
+\item \textbf{\emph{False sharing}}: arrays privados por hilo contiguos que comparten línea de caché (64 bytes).
+\item \textbf{PCIe}: subir 80 MB a la GPU a unos 10 a 25 GB/s cuesta de 3 a 8 ms \pv, probablemente más que el kernel. Por eso hay que desglosar los tiempos.
+\end{itemize}
+
+\concepto{4.6 Perfiladores}
+\que Herramientas que miden dónde se va el tiempo.
+
+\porque Para justificar optimizaciones con datos, como pide la parte opcional de CUDA (\emph{análisis profundo de la ejecución}).
+
+\como CPU: \texttt{perf stat -e cycles,instructions,cache-misses ./omp} y \texttt{perf record}/\texttt{perf report}. GPU: \texttt{nsys profile ./grad} para la línea temporal (transferencias frente a kernels) y \texttt{ncu --set full ./grad} para métricas por kernel (ocupación lograda, ancho de banda, divergencia).
+
+\alt \texttt{gprof} (antiguo, instrumenta), Valgrind \texttt{cachegrind} (muy lento, simula cachés) e Intel VTune.
+
+\begin{trampa}
+\texttt{nvprof} y Visual Profiler son obsoletos y no admiten GPUs de capacidad 8.0 o superior. Usa Nsight Systems y Nsight Compute.
+\end{trampa}
+\clearpage

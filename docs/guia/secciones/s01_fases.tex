@@ -1,0 +1,135 @@
+\setcounter{section}{-1}
+\section{Fases del proyecto}\label{sec:fases}
+
+El proyecto se divide en 16 fases (F0 a F15). Cada una produce ficheros concretos y un entregable que se puede comprobar con un comando. La estructura de directorios propuesta es:
+
+\begin{lstlisting}
+CalculoGradientesCUDA/
+  Makefile  README.md  Dockerfile  reproduce.sh
+  src/      poli.h poli.c secuencial.c secuencial.cpp omp.c grad.cu jac.c jac.cu
+  rust/     Cargo.toml src/main.rs
+  gen/      genFuncion.py genSistema.py oraculo.py
+  tests/    test.sh casos/
+  bench/    bench.sh graficas.py
+  resultados/  figuras/
+  docs/     formato.md prompts.md memoria/ guia/
+\end{lstlisting}
+
+{\small
+\begin{xltabular}{\linewidth}{@{}>{\bfseries}p{0.8cm} >{\raggedright\arraybackslash}p{4.6cm} >{\raggedright\arraybackslash}X >{\raggedright\arraybackslash}p{2.3cm}@{}}
+\toprule
+Fase & Qué hacer y ficheros & Entregable verificable & Estado \\
+\midrule
+\endfirsthead
+\toprule
+Fase & Qué hacer y ficheros & Entregable verificable & Estado \\
+\midrule
+\endhead
+\bottomrule
+\endfoot
+F0 & Reorganizar el repositorio: \fichero{src/}, \fichero{Makefile}, \fichero{.gitignore}, \fichero{README.md}; renombrar \fichero{CUDA.cpp} a \fichero{src/grad.cu} y \fichero{paralelo.cpp} a \fichero{src/omp.c}; fijar identidad git. & \texttt{make all} compila sin avisos; \texttt{git log} muestra un único autor. & Parcial: 5 ficheros esqueleto (solo comentarios); README y enunciado borrados en el último commit. \\
+F1 & Definir el formato de entrada y escribir \fichero{gen/genFuncion.py} y \fichero{gen/genSistema.py}; documentar en \fichero{docs/formato.md}. & Con la misma semilla se generan ficheros idénticos (\texttt{sha256sum}). & Parcial: \fichero{generador.py} (CSV) en la rama \texttt{claude/fervent-bell-1ekfj8}, sin fusionar ni oráculo. \\
+F2 & Oráculo exacto \fichero{gen/oraculo.py} con SymPy que escribe \fichero{ref.txt}. & Para el ejemplo del enunciado escribe \texttt{8 15 8}. & Pendiente (prototipo en \fichero{docs/guia/codigo/oraculo.py}). \\
+F3 & Estructura CSR y parser: \fichero{src/poli.h}, \fichero{src/poli.c} (\texttt{parsePoli}, \texttt{liberaPoli}). & \texttt{"3xy + 4yz + 2x + 5"} produce 4 monomios y 5 factores. & Pendiente (prototipo probado en la guía). \\
+F4 & Secuencial en C: \texttt{gradSec} y \texttt{evalSec} en \fichero{src/secuencial.c}, con medición de tiempo. & Imprime \texttt{grad = (8, 15, 8)}; error 0 frente al oráculo. & Parcial: según la conversación del 18-oct existe \fichero{gradienteSecuencial.c} con matriz densa fuera del repo \pv. \\
+F5 & Secuenciales en C++ (\fichero{src/secuencial.cpp}) y Rust (\fichero{rust/src/main.rs}). & Las tres versiones dan la misma salida que el oráculo. & Pendiente (\fichero{secuencial.rs} solo tiene un comentario). \\
+F6 & Batería de pruebas: \fichero{tests/test.sh} y objetivo \texttt{make test}. & \texttt{make test} termina con código 0. & Pendiente. \\
+F7 & OpenMP en \fichero{src/omp.c}: variantes \emph{reduction}, \emph{atomic}, privatización y dos fases; paralelismo por puntos y anidado; \texttt{omp\_get\_wtime}. & Error relativo $\le 10^{-12}$ frente al secuencial en todas las variantes y tabla de tiempos por hilos. & Pendiente (prototipo probado en la guía). \\
+F8 & CUDA base en \fichero{src/grad.cu}: un hilo por monomio con \texttt{atomicAdd}, desglose H2D, kernel, D2H y total con \texttt{cudaEvent}. & Mismo gradiente que el secuencial ($\le 10^{-12}$) y CSV de tiempos por tamaño de bloque. & Pendiente (prototipo compila para \texttt{sm\_89}). \\
+F9 & CUDA optimizado (opcional): dos fases sin atómicos, \texttt{x} en memoria compartida, monomios ordenados por longitud, memoria anclada. & Cada optimización con medida antes y después; se descartan las que no mejoran. & Pendiente. \\
+F10 & Sistemas y Jacobiano: \fichero{src/jac.c}, \fichero{src/jac.cu}, \fichero{gen/genSistema.py}. & El sistema del enunciado da las filas $(6,3,3)$, $(4,27,54)$, $(9,24,25)$ en $(1,2,3)$. & Pendiente (prototipo secuencial probado). \\
+F11 & Benchmarks: \fichero{bench/bench.sh}, \fichero{bench/graficas.py}, \fichero{resultados/*.csv}, \fichero{figuras/*.png}. & CSV con mediana y desviación; gráficas de speedup y eficiencia. & Pendiente (prototipo probado). \\
+F12 & Contenedor: \fichero{Dockerfile} y, si el servidor no permite Docker, \fichero{grad.def} para Apptainer. & \texttt{docker run --gpus all ...} ejecuta \texttt{make test}. & Pendiente. \\
+F13 & Registro de IA: \fichero{docs/prompts.md} con ámbito, prompts, soluciones y valoración por IA. & Una entrada por interacción relevante, con fecha y versión del código. & Parcial: hay conversaciones previas sin registrar. \\
+F14 & Memoria final en \fichero{docs/memoria/} con el esquema oficial (Abstract a Bibliografía). & PDF con todas las secciones y resultados del servidor. & Pendiente. \\
+F15 & Reproducibilidad: \fichero{reproduce.sh} y \fichero{resultados/entorno.txt}. & Un único comando regenera CSV y figuras. & Pendiente. \\
+\end{xltabular}
+}
+
+\subsection{Diagnóstico del estado actual}\label{sec:diagnostico}
+
+\textbf{Repositorio.} La rama \texttt{master} tiene 3 commits. El último (\texttt{2a655c4}, 8-oct-2026) crea \fichero{main.cpp}, \fichero{paralelo.cpp}, \fichero{CUDA.cpp}, \fichero{secuencial.cpp} (vacío) y \fichero{secuencial.rs}, todos con solo un comentario, y \emph{borra} \fichero{README.md} y \fichero{ePract.md}. La rama remota \texttt{claude/fervent-bell-1ekfj8} añade \fichero{generador.py}, que escribe dos CSV (\texttt{monomios.csv} con coeficientes y \texttt{factores.csv} con \texttt{monomio, variable, exp}) usando NumPy y Polars.
+
+\textbf{Problemas detectados en lo existente.}
+\begin{itemize}
+\item Las extensiones no encajan con la decisión de usar C: \fichero{paralelo.cpp} y \fichero{CUDA.cpp} se compilarían como C++, y \texttt{nvcc} solo trata como CUDA los ficheros \fichero{.cu} (o con \texttt{-x cu}).
+\item \fichero{generador.py} usa \texttt{eMax = 100} y hasta \texttt{cMax = 100} factores por monomio. Con puntos de evaluación fuera de $[0.5, 1.5]$ el producto desborda \texttt{double} (por ejemplo $2^{100\cdot 100}$). Además genera nombres de 5 caracteres en base 62 que pueden empezar por dígito (\texttt{"00a1Z"}): en formato texto serían indistinguibles del coeficiente.
+\item El generador no escribe el punto de evaluación ni un oráculo, por lo que no permite validar.
+\end{itemize}
+
+\textbf{Erratas e inconsistencias del enunciado} (conviene confirmarlas con el profesor):
+\begin{itemize}
+\item Los pesos no coinciden: el índice dice 40\,\% OpenMP, 40\,\% CUDA y 20\,\% documentación; el cuerpo dice 30\,\% OpenMP, 20\,\% CUDA, 20\,\% sistemas, 15\,\% IA y 15\,\% documentación (suma 100\,\%). Esta guía usa los pesos del cuerpo.
+\item Los objetivos hablan de \emph{sistemas de ecuaciones lineales}, pero el problema es polinómico (no lineal) y no se pide resolver sistemas, solo derivarlos.
+\item Se citan los apartados 1.1.1 a 1.1.3, que en el documento son 2.1.1 a 2.1.3.
+\item En el sistema de ejemplo \texttt{3x2} y \texttt{yz3} significan $3x^2$ e $yz^3$ (se perdió el superíndice), y la segunda ecuación repite el término $2x$; el parser debe sumarlos.
+\item La tarea 6 (contenedores) no tiene peso asignado; la convocatoria de recuperación indica junio-julio de 2026, anterior a la fecha actual; varias referencias (teorema de los cuatro colores, isomorfismo de grafos, redes sociales) no tienen relación con la práctica.
+\item La fecha de entrega aparece como \texttt{TAREA DE ENTREGA}. \supuesto{entrega final a finales de enero de 2027 y entrega opcional de OpenMP a principios de diciembre de 2026.}
+\end{itemize}
+
+\textbf{Pesos y lo que se evalúa}, según el cuerpo del enunciado:
+
+\begin{center}\small
+\begin{tabular}{@{}lrl@{}}
+\toprule
+Bloque & Peso & Condición crítica \\
+\midrule
+OpenMP (2.1.1) & 30\,\% & Tiempos con \texttt{omp\_get\_wtime}, escalabilidad y estudio de anidado \\
+CUDA (2.1.2) & 20\,\% & Si los resultados no coinciden con el secuencial no se corrige el resto \\
+Sistemas (2.1.3) & 20\,\% & Adaptar estructuras, regiones OpenMP y kernels \\
+IA y prompts (2.1.4) & 15\,\% & Calidad y contexto de los prompts, evolución incremental \\
+Documentación (2.1.5) & 15\,\% & Esquema fijo y citas \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\subsection{Hardware}\label{sec:hardware}
+
+\begin{center}\small
+\begin{tabularx}{\linewidth}{@{}l X X@{}}
+\toprule
+Elemento & Portátil de desarrollo & Servidor de prácticas \\
+\midrule
+CPU & Intel Core i5-13420H: 8 núcleos (4 P y 4 E), 12 hilos \pv & Desconocida \\
+GPU & RTX 4050 Laptop, arquitectura Ada Lovelace, capacidad de cómputo 8.9, 6 GB GDDR6 \pv & Desconocida \\
+FP64 en GPU & En GPUs GeForce el rendimiento en \texttt{double} es una fracción pequeña del de \texttt{float} (del orden de 1/64) \pv & Depende del modelo: una GPU de centro de datos tiene FP64 mucho mayor \\
+RAM & 16 GB & Desconocida \\
+Software & CachyOS, driver propietario de NVIDIA & Versiones de gcc, nvcc y driver desconocidas \\
+\bottomrule
+\end{tabularx}
+\end{center}
+
+Primera tarea en el servidor: guardar la salida de estos comandos en \fichero{resultados/entorno.txt}. La sección de resultados de la memoria debe salir de aquí, no de esta guía.
+
+\begin{lstlisting}[language=bash]
+lscpu; nproc; free -h; gcc --version; nvcc --version
+nvidia-smi --query-gpu=name,compute_cap,memory.total,clocks.max.sm --format=csv
+echo | gcc -fopenmp -dM -E - | grep _OPENMP
+\end{lstlisting}
+
+La macro \texttt{\_OPENMP} devuelve la fecha de la especificación que soporta el compilador (por ejemplo 201511 para OpenMP 4.5). Con \texttt{capacidad de cómputo} sabrás qué \texttt{-arch=sm\_XY} usar.
+
+\subsection{Índice de temas}\label{sec:indiceTemas}
+
+{\small
+\begin{xltabular}{\linewidth}{@{}>{\raggedright\arraybackslash}p{6.2cm} >{\raggedright\arraybackslash}X >{\raggedright\arraybackslash}p{3.0cm}@{}}
+\toprule
+Tema & Contenido & Fases \\
+\midrule
+\endhead
+1. Fundamentos matemáticos (\ref{tema:mat}) & Polinomios, derivadas, gradiente, métodos de derivación, coma flotante & F3, F4, F6, F10 \\
+2. Datos, formatos y generadores (\ref{tema:datos}) & Formato texto, parser, CSR, CSC, SoA, generadores, oráculo & F1, F2, F3 \\
+3. Algoritmo secuencial (\ref{tema:sec}) & Potencias, prefijo-sufijo, coste, C, C++ y Rust, compilación & F4, F5 \\
+4. Rendimiento y medida (\ref{tema:rend}) & Tiempos, speedup, Amdahl, Gustafson, roofline, perfiladores & F7, F8, F9, F11 \\
+5. OpenMP (\ref{tema:omp}) & Fork-join, carreras, reducciones, schedule, anidado, afinidad & F7, F10 \\
+6. CUDA: fundamentos (\ref{tema:cuda}) & Arquitectura, kernels, memoria, transferencias, eventos, atómicos & F8, F10 \\
+7. CUDA: optimización (\ref{tema:cudaOpt}) & Ocupación, coalescing, shared, shuffles, divergencia, streams & F9 \\
+8. Sistemas y Jacobiano (\ref{tema:jac}) & Estructura de datos, paralelización y almacenamiento & F10 \\
+9. Validación y benchmarking (\ref{tema:val}) & Tests, tolerancias, metodología, gráficas & F2, F6, F11, F15 \\
+10. Herramientas y entorno (\ref{tema:herr}) & Git, Make, Docker, Apptainer, Python, servidor & F0, F12, F15 \\
+11. IA generativa y memoria (\ref{tema:ia}) & Ingeniería de prompts, registro, redacción & F13, F14 \\
+12. Estado del arte (\ref{tema:arte}) & Diferenciación automática, evaluación de polinomios en GPU & F14 y todas \\
+\bottomrule
+\end{xltabular}
+}
+\clearpage
