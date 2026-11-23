@@ -1,3 +1,3 @@
 #pragma once
 
-int cuda();
+bool omp();

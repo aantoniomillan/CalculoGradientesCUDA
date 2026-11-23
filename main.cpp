@@ -1,5 +1,0 @@
-/*
-Main 
-modo menu
-llama a los otros .c
-*/
