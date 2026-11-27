@@ -1,0 +1,22 @@
+notas0datos.txt
+
+/*
+Se llaman a las funciones de aqui desde el que ejecute,
+se debe empezar cargando por si el usuario le da igual.
+
+tal vez nos rente hacer una clase "gestorDatos"
+que reciba como atributo el puntero df
+
+y tenga los métodos, asi se llama más facil desde otro lado
+
+ej: ejecutamos secuencial
+
+secuencial(){
+int x = 1;
+Datos *df;
+thread ( df = obtenerDatos(x));
+if (menuDatos(&x))
+Datos *df = obtenerDatos(x)
+
+}
+*/

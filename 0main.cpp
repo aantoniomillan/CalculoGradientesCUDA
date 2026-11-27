@@ -16,7 +16,7 @@
 
 using namespace std;
 
-inline double tiempo();
+inline double tiempo(); // inline?
 void cabecera();
 
 int menu() {
@@ -25,10 +25,10 @@ int menu() {
             "\n3-CUDA"
             "\n4-Jacobiano"
             "\n5-Super"
+            "\n6-Ajustar Datos"
             "\n0-Salir"
             "\nIntroduce elnumero de una Opcion: ";
     int op;
-
     return (cin >> op)? op:0;
 }
 
@@ -54,28 +54,56 @@ bool e(int op) {
     return true;
 }
 
+bool pasar(const Datos&){
+    return false;
+}
+
 int main() {
-    const uint32_t semilla = 67;
-    Datos df;
-    thread hilo(generarDatos, semilla,&df);
+
+    bool (*f[])(const Datos&) = 
+        {pasar, secuencial, omp,
+        #ifndef SIN_CUDA 
+            cuda,
+        #else 
+            pasar,
+        #endif
+            jacobiano, super};
+
+    const char* metodos[] = {
+        "",
+        "secuencial", 
+        "omp",
+        "cuda",
+        "jacobiano", 
+        "super"
+    };
+
+    GestorDatos gd;
+    thread hilo([&gd](){gd.preparar();});  // que?
     
     cabecera();
+    gd.avisar();
+
     for(int op = menu(); op != 0 ; op = menu()) {
+        if (hilo.joinable()) hilo.join();
         
-        if (hilo.joinable())
-        hilo.join();
+        if(op < 0 || op > 6 ) op = 0;
+        
+        if(op == 6){
+            gd.menu(); 
+            continue;
+        }
     
         double ini = tiempo();
-        
-        bool resultado = e(op); //bool resultado = ejecutar(op);
-        
-        double total= tiempo() - ini;
-        cout<< "Tiempo: " << total <<" s\n";
-        
-        if (!resultado)
-        cout << "Opcion no disponible\n";
+        if(!f[op](gd.datos())) cout << "Opcion no disponible\n"; 
+        else{
+            double total = tiempo() - ini;
+            cout<< "Tiempo: " << total <<" s\n";
+            gd.regTiempo(metodos[op], total);
+        }
     }
 
+    if (hilo.joinable()) hilo.join();
     return 0;
 }
 
@@ -99,12 +127,15 @@ inline double tiempo() {
 }
 
 void cabecera() {
+
+    //Establecemos ctes de colores
     const char* cian = "\033[1;36m";
     const char* verde = "\033[1;32m";
     const char* rojo = "\033[1;31m";
     const char* gris = "\033[90m";
     const char* fin = "\033[0m";
 
+    // Cout con R evitamos / como escape y escribir la cadena entre unas "" (con salto de linea hariamos varias)
     cout << cian << R"(
   ____               _ _            _
  / ___|_ __ __ _  __| (_) ___ _ __ | |_ ___  ___
